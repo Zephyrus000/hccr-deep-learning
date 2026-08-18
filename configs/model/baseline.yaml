@@ -1,0 +1,6 @@
+name: efficient_hccr
+num_classes: 7186
+in_channels: 1
+width: 32
+stage_depths: [1, 2, 2]
+dropout: 0.1

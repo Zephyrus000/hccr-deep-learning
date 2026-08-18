@@ -1,0 +1,16 @@
+name: efficient_hccr_baseline
+output_dir: experiments
+device: auto
+seed: 7
+epochs: 10
+batch_size: 64
+learning_rate: 0.001
+weight_decay: 0.0001
+image_size: 64
+width: 32
+num_workers: 0
+scheduler: cosine
+scheduler_min_lr: 0.000001
+scheduler_patience: 3
+early_stopping_patience: 8
+early_stopping_min_delta: 0.0

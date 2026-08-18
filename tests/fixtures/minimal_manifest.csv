@@ -1,0 +1,2 @@
+sample_id,source_file,record_offset,writer_id,raw_label,unicode_label,class_id,width,height,split
+sample-1,fixture/一/1.png,,,一,一,0,64,64,train

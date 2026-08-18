@@ -1,0 +1,19 @@
+# Keep all entries on the same dataset split, seed, resolution and hardware.
+base:
+  image_size: 64
+  batch_size: 64
+  epochs: 10
+  seed: 7
+candidates:
+  - name: narrow
+    width: 24
+    stage_depths: [1, 2, 2]
+  - name: baseline
+    width: 32
+    stage_depths: [1, 2, 2]
+  - name: wider
+    width: 48
+    stage_depths: [1, 2, 2]
+  - name: deeper
+    width: 32
+    stage_depths: [2, 3, 3]

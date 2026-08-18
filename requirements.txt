@@ -1,0 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cu130
+torch
+torchvision
+pandas
+matplotlib
+seaborn
+tqdm
+pyyaml
+black
+ruff
+pytest
+pre-commit
