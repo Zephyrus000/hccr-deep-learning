@@ -29,7 +29,14 @@ def train_epoch(
     forward_backward_seconds = 0.0
     previous_batch_finished = started_at
     with ArchitectureDiagnostics(model) as architecture_diagnostics:
-        progress = tqdm(loader, desc="train", unit="batch", leave=False)
+        progress = tqdm(
+            loader,
+            desc="train",
+            unit="batch",
+            leave=True,
+            dynamic_ncols=True,
+            mininterval=0.5,
+        )
         for batch_index, (images, targets, _) in enumerate(progress, start=1):
             batch_started_at = time.perf_counter()
             data_loading_seconds += batch_started_at - previous_batch_finished
