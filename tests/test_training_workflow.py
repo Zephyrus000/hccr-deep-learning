@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from hccr.data.dataset import HCCRDataset
 from hccr.training.workflow import TrainingConfig, run_training
 
 
@@ -55,3 +56,21 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertTrue((run_directory / "checkpoint_metadata.json").is_file())
             self.assertTrue((run_directory / "labels.json").is_file())
             self.assertTrue((run_directory / "preprocessing_gallery.png").is_file())
+
+    def test_manifest_paths_relative_to_data_raw_are_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image_path = root / "data" / "raw" / "character.png"
+            image_path.parent.mkdir(parents=True)
+            Image.new("L", (8, 8), color=0).save(image_path)
+            manifest_path = root / "data" / "processed" / "manifest.csv"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                (
+                    "sample_id,source_file,writer_id,unicode_label,class_id,split\n"
+                    "sample,character.png,,A,0,train\n"
+                ),
+                encoding="utf-8",
+            )
+            dataset = HCCRDataset(manifest_path, "train")
+            self.assertEqual(dataset.root, root / "data" / "raw")

@@ -222,3 +222,13 @@ __marimo__/
 
 # Documentation
 /docs
+
+# Experiments
+/experiments
+
+# .claude
+.claude/
+
+# AGENTS
+AGENTS.md
+CLAUDE.md

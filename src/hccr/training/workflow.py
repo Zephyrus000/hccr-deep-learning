@@ -97,6 +97,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         EvalPreprocessor(config.image_size, **preprocess_options),
         class_id_map,
     )
+    data_root = train_set.root
     if class_id_map is not None:
         write_json(output_dir / "class_subset.json", {"class_id_map": class_id_map})
     _write_label_mapping(output_dir, config.manifest_path, class_id_map)
@@ -155,7 +156,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             valid_loader,
             device,
             output_dir,
-            config.manifest_path.parents[2],
+            data_root,
         )
         if scheduler is not None:
             if config.scheduler == "plateau":

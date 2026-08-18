@@ -20,13 +20,13 @@ class HCCRDataset(Dataset[tuple[torch.Tensor, int, dict[str, str]]]):
         transform=None,
         class_id_map: dict[int, int] | None = None,
     ) -> None:
-        self.root = manifest_path.parents[2]
         self.rows = [
             row
             for row in read_manifest(manifest_path)
             if row["split"] == split
             and (class_id_map is None or int(row["class_id"]) in class_id_map)
         ]
+        self.root = _resolve_data_root(manifest_path, self.rows)
         self.transform = transform
         self.class_id_map = class_id_map
 
@@ -53,3 +53,28 @@ def select_class_subset(
         raise ValueError(f"max_classes must be in [2, {len(class_ids)}]")
     selected = sorted(Random(seed).sample(class_ids, max_classes))
     return {class_id: index for index, class_id in enumerate(selected)}
+
+
+def _resolve_data_root(manifest_path: Path, rows: list[dict[str, str]]) -> Path:
+    """Support manifests relative to either ``data`` or ``data/raw``."""
+    data_directory = next(
+        (parent for parent in manifest_path.parents if parent.name == "data"),
+        manifest_path.parents[2],
+    )
+    if not rows:
+        return data_directory
+    source_file = Path(rows[0]["source_file"])
+    fallback_directory = manifest_path.parents[2]
+    candidates = (
+        data_directory,
+        data_directory / "raw",
+        fallback_directory,
+        fallback_directory / "raw",
+    )
+    for candidate in candidates:
+        if (candidate / source_file).is_file():
+            return candidate
+    raise FileNotFoundError(
+        "manifest source_file is not found under either "
+        f"{data_directory} or {data_directory / 'raw'}: {source_file}"
+    )
