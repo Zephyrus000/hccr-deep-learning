@@ -17,6 +17,87 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
+class StreamingValidationDiagnostics:
+    """Accumulate validation reports batch by batch without retaining logits."""
+
+    def __init__(self, output_dir: Path, source_root: Path | None = None) -> None:
+        self.output_dir = output_dir
+        self.source_root = source_root
+        self.support: Counter[int] = Counter()
+        self.hits: Counter[int] = Counter()
+        self.bin_counts = [0] * 10
+        self.bin_correct = [0] * 10
+        self.bin_confidence = [0.0] * 10
+        self.errors: list[dict[str, Any]] = []
+        self.total_samples = 0
+        self.total_confidence = 0.0
+
+    def update(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        rows: Sequence[dict[str, Any]],
+    ) -> None:
+        probabilities = logits.softmax(dim=1)
+        confidence, predictions = probabilities.max(dim=1)
+        top_values, top_indices = probabilities.topk(
+            min(5, probabilities.shape[1]), dim=1
+        )
+        for row, target, prediction, score, scores, indices in zip(
+            rows,
+            targets.tolist(),
+            predictions.tolist(),
+            confidence.tolist(),
+            top_values.tolist(),
+            top_indices.tolist(),
+            strict=True,
+        ):
+            self.total_samples += 1
+            self.total_confidence += score
+            self.support[target] += 1
+            is_correct = target == prediction
+            if is_correct:
+                self.hits[target] += 1
+            bin_index = min(9, int(score * 10))
+            self.bin_counts[bin_index] += 1
+            self.bin_correct[bin_index] += int(is_correct)
+            self.bin_confidence[bin_index] += score
+            if not is_correct and len(self.errors) < 1000:
+                self.errors.append(
+                    {
+                        "row": row,
+                        "target": target,
+                        "prediction": prediction,
+                        "confidence": score,
+                        "margin": scores[0] - scores[1] if len(scores) > 1 else 1.0,
+                        "top5": indices,
+                    }
+                )
+
+    def write(self) -> dict[str, float]:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        _write_per_class_metrics(self.output_dir, self.support, self.hits)
+        _write_error_records(self.output_dir, self.errors)
+        ece = _write_reliability_from_bins(
+            self.output_dir, self.bin_counts, self.bin_correct, self.bin_confidence
+        )
+        if self.source_root is not None:
+            _write_error_gallery_from_records(
+                self.output_dir, self.errors, self.source_root
+            )
+        health = {
+            "samples": self.total_samples,
+            "classes": len(self.support),
+            "mean_confidence": self.total_confidence / self.total_samples,
+            "expected_calibration_error": ece,
+            "recorded_errors": len(self.errors),
+        }
+        (self.output_dir / "validation_health.json").write_text(
+            json.dumps(health, indent=2) + "\n", encoding="utf-8"
+        )
+        return health
+
+
 def write_validation_diagnostics(
     output_dir: Path,
     logits: torch.Tensor,
@@ -222,3 +303,100 @@ def _write_error_gallery(
             fill="black",
         )
     canvas.save(output_dir / "validation_error_gallery.png")
+
+
+def _write_error_records(output_dir: Path, errors: Sequence[dict[str, Any]]) -> None:
+    fields = [
+        "sample_id",
+        "source_file",
+        "target",
+        "prediction",
+        "confidence",
+        "margin",
+        "top5",
+    ]
+    with (output_dir / "validation_errors.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as file:
+        writer = csv.DictWriter(file, fieldnames=fields)
+        writer.writeheader()
+        for error in errors:
+            writer.writerow(
+                {
+                    "sample_id": error["row"]["sample_id"],
+                    "source_file": error["row"]["source_file"],
+                    "target": error["target"],
+                    "prediction": error["prediction"],
+                    "confidence": error["confidence"],
+                    "margin": error["margin"],
+                    "top5": json.dumps(error["top5"]),
+                }
+            )
+
+
+def _write_reliability_from_bins(
+    output_dir: Path,
+    bin_counts: Sequence[int],
+    bin_correct: Sequence[int],
+    bin_confidence: Sequence[float],
+) -> float:
+    total = sum(bin_counts)
+    accuracies = [
+        correct / count if count else 0.0
+        for count, correct in zip(bin_counts, bin_correct, strict=True)
+    ]
+    confidences = [
+        value / count if count else 0.0
+        for count, value in zip(bin_counts, bin_confidence, strict=True)
+    ]
+    ece = sum(
+        abs(accuracy - confidence) * count / total
+        for count, accuracy, confidence in zip(
+            bin_counts, accuracies, confidences, strict=True
+        )
+        if count
+    )
+    figure, axis = plt.subplots(figsize=(6, 5))
+    centers = [(index + 0.5) / 10 for index in range(10)]
+    axis.bar(centers, accuracies, width=0.09, alpha=0.75, label="accuracy")
+    axis.plot([0, 1], [0, 1], "--", color="black", label="perfect calibration")
+    axis.plot(centers, confidences, marker="o", label="mean confidence")
+    axis.set(
+        xlim=(0, 1),
+        ylim=(0, 1),
+        xlabel="confidence",
+        ylabel="accuracy",
+        title="Reliability diagram",
+    )
+    axis.legend()
+    figure.tight_layout()
+    figure.savefig(output_dir / "reliability_diagram.png", dpi=160)
+    plt.close(figure)
+    (output_dir / "calibration_bins.json").write_text(
+        json.dumps(
+            {
+                "expected_calibration_error": ece,
+                "bins": [
+                    {"count": count, "accuracy": accuracy, "confidence": confidence}
+                    for count, accuracy, confidence in zip(
+                        bin_counts, accuracies, confidences, strict=True
+                    )
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return ece
+
+
+def _write_error_gallery_from_records(
+    output_dir: Path, errors: Sequence[dict[str, Any]], source_root: Path
+) -> None:
+    if not errors:
+        return
+    rows = [error["row"] for error in errors[:25]]
+    predictions = torch.tensor([error["prediction"] for error in errors[:25]])
+    targets = torch.tensor([error["target"] for error in errors[:25]])
+    _write_error_gallery(output_dir, predictions, targets, rows, source_root)

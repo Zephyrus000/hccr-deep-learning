@@ -7,8 +7,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from hccr.evaluation.diagnostics import write_validation_diagnostics
-from hccr.evaluation.metrics import classification_metrics
+from hccr.evaluation.diagnostics import StreamingValidationDiagnostics
 
 
 @torch.inference_mode()
@@ -20,11 +19,30 @@ def evaluate(
     source_root: Path | None = None,
 ) -> dict[str, float]:
     model.eval()
-    logits_batches, target_batches, rows = [], [], []
+    total_samples = 0
+    top1_hits = 0
+    top5_hits = 0
+    diagnostics = (
+        StreamingValidationDiagnostics(output_dir, source_root)
+        if output_dir is not None
+        else None
+    )
     for images, targets, metadata in loader:
-        logits_batches.append(model(images.to(device)).cpu())
-        target_batches.append(targets.cpu())
-        rows.extend(
+        logits = model(images.to(device)).cpu()
+        targets = targets.cpu()
+        predictions = logits.argmax(dim=1)
+        total_samples += targets.numel()
+        top1_hits += predictions.eq(targets).sum().item()
+        top5_hits += (
+            logits.topk(min(5, logits.shape[1]), dim=1)
+            .indices.eq(targets[:, None])
+            .any(dim=1)
+            .sum()
+            .item()
+        )
+        if diagnostics is None:
+            continue
+        rows = [
             {
                 key: (
                     value[index].item()
@@ -34,11 +52,11 @@ def evaluate(
                 for key, value in metadata.items()
             }
             for index in range(len(targets))
-        )
-    logits, targets = torch.cat(logits_batches), torch.cat(target_batches)
-    metrics = classification_metrics(logits, targets)
-    if output_dir is not None:
-        metrics.update(
-            write_validation_diagnostics(output_dir, logits, targets, rows, source_root)
-        )
+        ]
+        diagnostics.update(logits, targets, rows)
+    if total_samples == 0:
+        raise ValueError("evaluation loader produced no samples")
+    metrics = {"top1": top1_hits / total_samples, "top5": top5_hits / total_samples}
+    if diagnostics is not None:
+        metrics.update(diagnostics.write())
     return metrics

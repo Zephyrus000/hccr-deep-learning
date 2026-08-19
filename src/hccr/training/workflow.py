@@ -151,13 +151,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     curves: list[dict[str, float]] = []
     for epoch in range(1, config.epochs + 1):
         train_metrics = train_epoch(model, train_loader, optimizer, device)
-        metrics = evaluate(
-            model,
-            valid_loader,
-            device,
-            output_dir,
-            data_root,
-        )
+        metrics = evaluate(model, valid_loader, device)
         if scheduler is not None:
             if config.scheduler == "plateau":
                 scheduler.step(metrics["top1"])
@@ -175,10 +169,6 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         write_curves(output_dir, curves)
         write_training_diagnostics(output_dir, curves)
         save_learning_curves(output_dir, curves)
-        write_json(
-            output_dir / "metrics.json",
-            {"run_id": run_id, "best": best_metrics, "latest": metrics},
-        )
         logger.info(
             "epoch=%s train_loss=%.6f grad_norm=%.6f throughput=%.2f validation=%s",
             epoch,
@@ -196,15 +186,33 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                     "schema_version": 1,
                     "model": {
                         "name": "efficient_hccr",
+                        "in_channels": 1,
                         "width": config.width,
+                        "stage_depths": [1, 2, 2],
+                        "dropout": 0.1,
                         "num_classes": active_num_classes,
                     },
-                    "preprocess": {"image_size": config.image_size},
+                    "preprocess": {
+                        "image_size": config.image_size,
+                        "margin": 4,
+                        "invert": False,
+                        **preprocess_options,
+                    },
                     "manifest_digest": file_digest(config.manifest_path),
+                    "labels_digest": file_digest(output_dir / "labels.json"),
+                    "class_subset_digest": (
+                        file_digest(output_dir / "class_subset.json")
+                        if class_id_map is not None
+                        else None
+                    ),
                     "metrics": metrics,
                 },
             )
             logger.info("best checkpoint saved epoch=%s", epoch)
+        write_json(
+            output_dir / "metrics.json",
+            {"run_id": run_id, "best": best_metrics, "latest": metrics},
+        )
         if early_stopping.update(metrics["top1"]):
             write_json(
                 output_dir / "early_stopping.json",
@@ -219,6 +227,12 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             )
             logger.info("early stopping at epoch=%s", epoch)
             break
+    model.load_state_dict(
+        torch.load(output_dir / "checkpoint.pt", map_location=device, weights_only=True)
+    )
+    diagnostic_metrics = evaluate(model, valid_loader, device, output_dir, data_root)
+    if diagnostic_metrics["top1"] != best_metrics["top1"]:
+        raise RuntimeError("best checkpoint metrics do not match diagnostic evaluation")
     _append_experiment_summary(
         config.output_dir, run_id, config, best_metrics, resource_profile
     )

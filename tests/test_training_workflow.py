@@ -51,7 +51,25 @@ class TrainingWorkflowTests(unittest.TestCase):
             )
             run_directory = next((root / "experiments").glob("20*"))
             metadata = json.loads((run_directory / "metadata.json").read_text())
+            metrics = json.loads((run_directory / "metrics.json").read_text())
+            checkpoint_metadata = json.loads(
+                (run_directory / "checkpoint_metadata.json").read_text()
+            )
             self.assertIn("run_id", metadata)
+            self.assertEqual(metrics["best"], checkpoint_metadata["metrics"])
+            self.assertEqual(
+                checkpoint_metadata["preprocess"],
+                {
+                    "image_size": 16,
+                    "margin": 4,
+                    "invert": False,
+                    "center_by_centroid": False,
+                    "otsu_binarize": False,
+                    "median_filter_size": None,
+                },
+            )
+            self.assertIn("labels_digest", checkpoint_metadata)
+            self.assertIsNone(checkpoint_metadata["class_subset_digest"])
             self.assertTrue((run_directory / "checkpoint.pt").is_file())
             self.assertTrue((run_directory / "checkpoint_metadata.json").is_file())
             self.assertTrue((run_directory / "labels.json").is_file())
