@@ -41,5 +41,9 @@ class PreprocessingTests(unittest.TestCase):
     def test_gallery_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "gallery.png"
-            save_gallery([self.image], EvalPreprocessor(image_size=16), output)
+            save_gallery(
+                [self.image], EvalPreprocessor(image_size=16), output, ["U+4E00"]
+            )
             self.assertTrue(output.is_file())
+            with Image.open(output) as gallery:
+                self.assertEqual(gallery.size, (64, 64))

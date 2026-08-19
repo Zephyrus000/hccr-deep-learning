@@ -17,7 +17,11 @@ from hccr.evaluation.reports import save_learning_curves
 from hccr.models import build_model
 from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
 from hccr.preprocessing.gallery import save_gallery
-from hccr.training.artifacts import file_digest, save_checkpoint
+from hccr.training.artifacts import (
+    file_digest,
+    save_checkpoint,
+    update_checkpoint_metrics,
+)
 from hccr.training.callbacks import EarlyStopping
 from hccr.training.diagnostics import profile_model, write_training_diagnostics
 from hccr.training.trainer import train_epoch
@@ -233,6 +237,12 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     diagnostic_metrics = evaluate(model, valid_loader, device, output_dir, data_root)
     if diagnostic_metrics["top1"] != best_metrics["top1"]:
         raise RuntimeError("best checkpoint metrics do not match diagnostic evaluation")
+    best_metrics = {**best_metrics, **diagnostic_metrics}
+    update_checkpoint_metrics(output_dir, best_metrics)
+    write_json(
+        output_dir / "metrics.json",
+        {"run_id": run_id, "best": best_metrics, "latest": metrics},
+    )
     _append_experiment_summary(
         config.output_dir, run_id, config, best_metrics, resource_profile
     )
@@ -264,12 +274,27 @@ def _save_preprocessing_gallery(
     transform: EvalPreprocessor,
     output_dir: Path,
 ) -> None:
-    images = []
-    for row in dataset.rows[:8]:
+    rows_by_label: dict[str, dict[str, str]] = {}
+    for row in dataset.rows:
+        rows_by_label.setdefault(row["unicode_label"], row)
+        if len(rows_by_label) == 8:
+            break
+    images, labels = [], []
+    for label, row in rows_by_label.items():
         with Image.open(dataset.root / row["source_file"]) as image:
             images.append(image.convert("L"))
+            labels.append(_unicode_codepoint(label))
     if images:
-        save_gallery(images, transform, output_dir / "preprocessing_gallery.png")
+        save_gallery(
+            images,
+            transform,
+            output_dir / "preprocessing_gallery.png",
+            labels,
+        )
+
+
+def _unicode_codepoint(label: str) -> str:
+    return " ".join(f"U+{ord(character):04X}" for character in label)
 
 
 def _write_label_mapping(

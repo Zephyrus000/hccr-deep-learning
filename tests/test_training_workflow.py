@@ -57,6 +57,8 @@ class TrainingWorkflowTests(unittest.TestCase):
             )
             self.assertIn("run_id", metadata)
             self.assertEqual(metrics["best"], checkpoint_metadata["metrics"])
+            self.assertIn("expected_calibration_error", checkpoint_metadata["metrics"])
+            self.assertIn("mean_confidence", checkpoint_metadata["metrics"])
             self.assertEqual(
                 checkpoint_metadata["preprocess"],
                 {
