@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from random import seed as random_seed
@@ -23,7 +24,13 @@ from hccr.training.artifacts import (
     update_checkpoint_metrics,
 )
 from hccr.training.callbacks import EarlyStopping
-from hccr.training.diagnostics import profile_model, write_training_diagnostics
+from hccr.training.diagnostics import (
+    profile_model,
+    recalibrate_batch_norm,
+    summarize_batch_norm_state,
+    summarize_validation_stability,
+    write_training_diagnostics,
+)
 from hccr.training.trainer import train_epoch
 from hccr.utils import close_logging, configure_logging, resolve_device
 from hccr.utils.experiment import initialize_run, new_run_id, write_curves, write_json
@@ -55,9 +62,15 @@ class TrainingConfig:
     scheduler_patience: int = 3
     early_stopping_patience: int | None = 8
     early_stopping_min_delta: float = 0.0
+    benchmark_warmup_iterations: int = 20
+    benchmark_iterations: int = 200
+    benchmark_repetitions: int = 5
+    bn_recalibration_batches: int = 0
+    validation_drop_threshold: float = 0.05
 
 
 def run_training(config: TrainingConfig) -> dict[str, float]:
+    _validate_training_config(config)
     device = resolve_device(config.device)
     random_seed(config.seed)
     torch.manual_seed(config.seed)
@@ -139,10 +152,45 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         num_workers=config.num_workers,
         pin_memory=device == "cuda",
     )
+    calibration_loader = None
+    if config.bn_recalibration_batches:
+        calibration_set = HCCRDataset(
+            config.manifest_path,
+            "train",
+            EvalPreprocessor(config.image_size, **preprocess_options),
+            class_id_map,
+        )
+        if config.max_train_samples is not None:
+            calibration_set = Subset(
+                calibration_set,
+                range(min(config.max_train_samples, len(calibration_set))),
+            )
+        calibration_samples = min(
+            len(calibration_set), config.bn_recalibration_batches * config.batch_size
+        )
+        calibration_indices = torch.randperm(
+            len(calibration_set),
+            generator=torch.Generator().manual_seed(config.seed + 1),
+        )[:calibration_samples].tolist()
+        calibration_set = Subset(calibration_set, calibration_indices)
+        calibration_loader = DataLoader(
+            calibration_set,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            pin_memory=device == "cuda",
+        )
     model = build_model(
         "efficient_hccr", num_classes=active_num_classes, width=config.width
     ).to(device)
-    resource_profile = profile_model(model, config.image_size, device, output_dir)
+    resource_profile = profile_model(
+        model,
+        config.image_size,
+        device,
+        output_dir,
+        config.benchmark_warmup_iterations,
+        config.benchmark_iterations,
+        config.benchmark_repetitions,
+    )
     logger.info("resource profile=%s", resource_profile)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
@@ -152,10 +200,31 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         config.early_stopping_patience, config.early_stopping_min_delta
     )
     best_metrics: dict[str, float] = {"top1": 0.0, "top5": 0.0}
-    curves: list[dict[str, float]] = []
+    curves: list[dict] = []
+    validation_stability = None
     for epoch in range(1, config.epochs + 1):
         train_metrics = train_epoch(model, train_loader, optimizer, device)
+        batch_norm = summarize_batch_norm_state(model)
         metrics = evaluate(model, valid_loader, device)
+        recalibration_metrics = {}
+        if calibration_loader is not None:
+            recalibrated_model = deepcopy(model)
+            recalibration = recalibrate_batch_norm(
+                recalibrated_model,
+                calibration_loader,
+                device,
+                config.bn_recalibration_batches,
+            )
+            recalibrated_metrics = evaluate(recalibrated_model, valid_loader, device)
+            recalibration_metrics = {
+                "bn_recalibrated_top1": recalibrated_metrics["top1"],
+                "bn_recalibrated_top5": recalibrated_metrics["top5"],
+                "bn_recalibrated_top1_delta": (
+                    recalibrated_metrics["top1"] - metrics["top1"]
+                ),
+                "bn_recalibration": recalibration,
+            }
+            del recalibrated_model
         if scheduler is not None:
             if config.scheduler == "plateau":
                 scheduler.step(metrics["top1"])
@@ -167,11 +236,17 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 "epoch": float(epoch),
                 **train_metrics,
                 **metrics,
+                "batch_norm": batch_norm,
+                **recalibration_metrics,
                 "next_learning_rate": current_learning_rate,
             }
         )
+        validation_stability = summarize_validation_stability(
+            curves, config.validation_drop_threshold
+        )
         write_curves(output_dir, curves)
         write_training_diagnostics(output_dir, curves)
+        write_json(output_dir / "validation_stability.json", validation_stability)
         save_learning_curves(output_dir, curves)
         logger.info(
             "epoch=%s train_loss=%.6f grad_norm=%.6f throughput=%.2f validation=%s",
@@ -215,7 +290,12 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             logger.info("best checkpoint saved epoch=%s", epoch)
         write_json(
             output_dir / "metrics.json",
-            {"run_id": run_id, "best": best_metrics, "latest": metrics},
+            {
+                "run_id": run_id,
+                "best": best_metrics,
+                "latest": metrics,
+                "validation_stability": validation_stability,
+            },
         )
         if early_stopping.update(metrics["top1"]):
             write_json(
@@ -241,7 +321,12 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     update_checkpoint_metrics(output_dir, best_metrics)
     write_json(
         output_dir / "metrics.json",
-        {"run_id": run_id, "best": best_metrics, "latest": metrics},
+        {
+            "run_id": run_id,
+            "best": best_metrics,
+            "latest": metrics,
+            "validation_stability": validation_stability,
+        },
     )
     _append_experiment_summary(
         config.output_dir, run_id, config, best_metrics, resource_profile
@@ -249,6 +334,26 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     logger.info("training completed run_id=%s best_metrics=%s", run_id, best_metrics)
     close_logging(logger)
     return best_metrics
+
+
+def _validate_training_config(config: TrainingConfig) -> None:
+    if config.epochs < 1:
+        raise ValueError("epochs must be positive")
+    if (
+        min(
+            config.benchmark_warmup_iterations,
+            config.benchmark_iterations,
+            config.benchmark_repetitions,
+        )
+        < 1
+    ):
+        raise ValueError(
+            "benchmark warm-up, iterations and repetitions must be positive"
+        )
+    if config.bn_recalibration_batches < 0:
+        raise ValueError("bn_recalibration_batches must be non-negative")
+    if config.validation_drop_threshold < 0:
+        raise ValueError("validation_drop_threshold must be non-negative")
 
 
 def _build_scheduler(optimizer: torch.optim.Optimizer, config: TrainingConfig):

@@ -47,6 +47,10 @@ class TrainingWorkflowTests(unittest.TestCase):
                     width=4,
                     scheduler="none",
                     early_stopping_patience=None,
+                    benchmark_warmup_iterations=1,
+                    benchmark_iterations=2,
+                    benchmark_repetitions=2,
+                    bn_recalibration_batches=1,
                 )
             )
             run_directory = next((root / "experiments").glob("20*"))
@@ -59,6 +63,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertEqual(metrics["best"], checkpoint_metadata["metrics"])
             self.assertIn("expected_calibration_error", checkpoint_metadata["metrics"])
             self.assertIn("mean_confidence", checkpoint_metadata["metrics"])
+            self.assertIn("validation_stability", metrics)
             self.assertEqual(
                 checkpoint_metadata["preprocess"],
                 {
@@ -76,6 +81,10 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertTrue((run_directory / "checkpoint_metadata.json").is_file())
             self.assertTrue((run_directory / "labels.json").is_file())
             self.assertTrue((run_directory / "preprocessing_gallery.png").is_file())
+            self.assertTrue((run_directory / "validation_stability.json").is_file())
+            curves = json.loads((run_directory / "curves.json").read_text())["epochs"]
+            self.assertIn("batch_norm", curves[0])
+            self.assertIn("bn_recalibrated_top1", curves[0])
 
     def test_manifest_paths_relative_to_data_raw_are_supported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

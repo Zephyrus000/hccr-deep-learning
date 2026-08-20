@@ -57,6 +57,17 @@ def build_parser() -> argparse.ArgumentParser:
             command_parser.add_argument("--center-by-centroid", action="store_true")
             command_parser.add_argument("--otsu-binarize", action="store_true")
             command_parser.add_argument("--median-filter-size", type=int)
+            command_parser.add_argument(
+                "--benchmark-warmup-iterations", type=int, default=20
+            )
+            command_parser.add_argument("--benchmark-iterations", type=int, default=200)
+            command_parser.add_argument("--benchmark-repetitions", type=int, default=5)
+            command_parser.add_argument(
+                "--bn-recalibration-batches", type=int, default=0
+            )
+            command_parser.add_argument(
+                "--validation-drop-threshold", type=float, default=0.05
+            )
         if command == "compare-runs":
             command_parser.add_argument("--summary", type=Path, required=True)
             command_parser.add_argument("--baseline", required=True)
@@ -102,6 +113,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 center_by_centroid=arguments.center_by_centroid,
                 otsu_binarize=arguments.otsu_binarize,
                 median_filter_size=arguments.median_filter_size,
+                benchmark_warmup_iterations=arguments.benchmark_warmup_iterations,
+                benchmark_iterations=arguments.benchmark_iterations,
+                benchmark_repetitions=arguments.benchmark_repetitions,
+                bn_recalibration_batches=arguments.bn_recalibration_batches,
+                validation_drop_threshold=arguments.validation_drop_threshold,
             )
         )
         print(metrics)
