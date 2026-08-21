@@ -12,21 +12,38 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-def save_learning_curves(output_dir: Path, epochs: list[dict[str, float]]) -> Path:
+def save_learning_curves(
+    output_dir: Path,
+    epochs: list[dict[str, float]],
+    recalibrated: dict[str, float] | None = None,
+) -> Path:
     output = output_dir / "learning_curves.png"
-    figure, axis = plt.subplots(figsize=(8, 4))
-    axis.plot(
+    figure, (loss_axis, accuracy_axis) = plt.subplots(1, 2, figsize=(11, 4))
+    loss_axis.plot(
         [item["epoch"] for item in epochs],
         [item["train_loss"] for item in epochs],
         label="train loss",
     )
-    axis.plot(
+    loss_axis.set(xlabel="epoch", ylabel="loss", title="Training loss")
+    loss_axis.legend()
+    accuracy_axis.plot(
         [item["epoch"] for item in epochs],
         [item["top1"] for item in epochs],
         label="validation top-1",
     )
-    axis.set(xlabel="epoch", ylabel="metric", title="Training curves")
-    axis.legend()
+    if recalibrated is not None:
+        accuracy_axis.scatter(
+            [recalibrated["epoch"]],
+            [recalibrated["top1"]],
+            marker="*",
+            s=120,
+            label="BN-recalibrated top-1",
+            zorder=3,
+        )
+    accuracy_axis.set(
+        xlabel="epoch", ylabel="accuracy", title="Validation accuracy", ylim=(0, 1)
+    )
+    accuracy_axis.legend()
     figure.tight_layout()
     figure.savefig(output, dpi=150)
     plt.close(figure)

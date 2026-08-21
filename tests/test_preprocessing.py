@@ -32,11 +32,72 @@ class PreprocessingTests(unittest.TestCase):
         )
         self.assertEqual(transform(self.image).size, (32, 32))
 
+    def test_white_on_black_is_exact_inverse_of_default_polarity(self) -> None:
+        black_on_white = EvalPreprocessor(image_size=32)(self.image)
+        white_on_black = EvalPreprocessor(
+            image_size=32, input_polarity="white_on_black"
+        )(self.image)
+        self.assertEqual(
+            white_on_black.tobytes(),
+            bytes(255 - value for value in black_on_white.get_flattened_data()),
+        )
+
+    def test_unknown_input_polarity_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "input_polarity"):
+            EvalPreprocessor(input_polarity="unknown")(self.image)
+
     def test_train_augmentation_is_not_fixed_rotation(self) -> None:
         transform = TrainPreprocessor(image_size=32, blur_radius=None)
         self.assertNotEqual(
             transform(self.image).tobytes(), transform(self.image).tobytes()
         )
+
+    def test_elastic_transform_records_application_and_preserves_size(self) -> None:
+        transform = TrainPreprocessor(
+            image_size=32,
+            rotation_degrees=0,
+            translate_pixels=0,
+            scale_range=(1.0, 1.0),
+            elastic_probability=1.0,
+        )
+        transformed = transform(self.image)
+        self.assertEqual(transformed.size, (32, 32))
+        self.assertEqual(transformed.info["applied_augmentations"], ("elastic",))
+
+    def test_morphology_is_mutually_exclusive_with_black_foreground(self) -> None:
+        common = {
+            "image_size": 32,
+            "rotation_degrees": 0,
+            "translate_pixels": 0,
+            "scale_range": (1.0, 1.0),
+        }
+        eroded = TrainPreprocessor(**common, erosion_probability=1.0)(self.image)
+        dilated = TrainPreprocessor(**common, dilation_probability=1.0)(self.image)
+        eroded_foreground = sum(value < 128 for value in eroded.get_flattened_data())
+        dilated_foreground = sum(value < 128 for value in dilated.get_flattened_data())
+        self.assertEqual(eroded.info["applied_augmentations"], ("erosion",))
+        self.assertEqual(dilated.info["applied_augmentations"], ("dilation",))
+        self.assertLess(eroded_foreground, dilated_foreground)
+
+    def test_morphology_keeps_semantics_after_output_polarity_change(self) -> None:
+        common = {
+            "image_size": 32,
+            "input_polarity": "white_on_black",
+            "rotation_degrees": 0,
+            "translate_pixels": 0,
+            "scale_range": (1.0, 1.0),
+        }
+        eroded = TrainPreprocessor(**common, erosion_probability=1.0)(self.image)
+        dilated = TrainPreprocessor(**common, dilation_probability=1.0)(self.image)
+        eroded_foreground = sum(value > 128 for value in eroded.get_flattened_data())
+        dilated_foreground = sum(value > 128 for value in dilated.get_flattened_data())
+        self.assertLess(eroded_foreground, dilated_foreground)
+
+    def test_invalid_augmentation_probabilities_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "sum to at most 1"):
+            TrainPreprocessor(erosion_probability=0.6, dilation_probability=0.6)(
+                self.image
+            )
 
     def test_gallery_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

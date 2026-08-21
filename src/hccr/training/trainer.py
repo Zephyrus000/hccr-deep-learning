@@ -14,14 +14,19 @@ from hccr.training.diagnostics import ArchitectureDiagnostics
 
 
 def train_epoch(
-    model: nn.Module, loader, optimizer: torch.optim.Optimizer, device: str
+    model: nn.Module,
+    loader,
+    optimizer: torch.optim.Optimizer,
+    device: str,
+    criterion: nn.Module,
+    margin_multiplier: float = 1.0,
 ) -> dict[str, float]:
     model.train()
-    criterion = nn.CrossEntropyLoss()
     total_loss = 0.0
     total_samples = 0
     loss_values: list[float] = []
     gradient_norms: list[float] = []
+    augmentation_counts: dict[str, int] = {}
     started_at = time.perf_counter()
     if device.startswith("cuda"):
         torch.cuda.reset_peak_memory_stats()
@@ -37,12 +42,18 @@ def train_epoch(
             dynamic_ncols=True,
             mininterval=0.5,
         )
-        for batch_index, (images, targets, _) in enumerate(progress, start=1):
+        for batch_index, (images, targets, metadata) in enumerate(progress, start=1):
             batch_started_at = time.perf_counter()
             data_loading_seconds += batch_started_at - previous_batch_finished
             images, targets = images.to(device), targets.to(device)
             optimizer.zero_grad(set_to_none=True)
-            loss = criterion(model(images), targets)
+            training_logits = getattr(model, "training_logits", None)
+            logits = (
+                training_logits(images, targets, margin_multiplier)
+                if training_logits is not None
+                else model(images)
+            )
+            loss = criterion(logits, targets)
             loss.backward()
             architecture_diagnostics.record_gradients()
             squared_norm = sum(
@@ -56,6 +67,11 @@ def train_epoch(
             total_loss += loss.item() * targets.numel()
             total_samples += targets.numel()
             loss_values.append(loss.item())
+            for encoded in metadata.get("applied_augmentations", ()):
+                for augmentation in filter(None, encoded.split(",")):
+                    augmentation_counts[augmentation] = (
+                        augmentation_counts.get(augmentation, 0) + 1
+                    )
             progress.set_postfix(loss=f"{loss.item():.4f}")
             if batch_index % 100 == 0:
                 logging.getLogger("hccr.train").info(
@@ -70,6 +86,11 @@ def train_epoch(
         "gradient_norm_mean": sum(gradient_norms) / len(gradient_norms),
         "gradient_norm_max": max(gradient_norms),
         "learning_rate": optimizer.param_groups[0]["lr"],
+        "margin_multiplier": margin_multiplier,
+        "augmentation_counts": augmentation_counts,
+        "augmentation_rates": {
+            name: count / total_samples for name, count in augmentation_counts.items()
+        },
         "train_elapsed_seconds": elapsed_seconds,
         "train_samples_per_second": total_samples / elapsed_seconds,
         "data_loading_seconds": data_loading_seconds,

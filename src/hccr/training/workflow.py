@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+from random import getstate as random_state
 from random import seed as random_seed
+from random import setstate as restore_random_state
 
 import torch
 from PIL import Image
@@ -17,10 +20,11 @@ from hccr.evaluation.evaluator import evaluate
 from hccr.evaluation.reports import save_learning_curves
 from hccr.models import build_model
 from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
-from hccr.preprocessing.gallery import save_gallery
+from hccr.preprocessing.gallery import save_channel_gallery, save_gallery
 from hccr.training.artifacts import (
     file_digest,
     save_checkpoint,
+    save_recalibrated_checkpoint,
     update_checkpoint_metrics,
 )
 from hccr.training.callbacks import EarlyStopping
@@ -31,6 +35,7 @@ from hccr.training.diagnostics import (
     summarize_validation_stability,
     write_training_diagnostics,
 )
+from hccr.training.losses import build_classification_loss
 from hccr.training.trainer import train_epoch
 from hccr.utils import close_logging, configure_logging, resolve_device
 from hccr.utils.experiment import initialize_run, new_run_id, write_curves, write_json
@@ -46,7 +51,21 @@ class TrainingConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
     image_size: int = 64
+    input_mode: str = "grayscale"
+    input_polarity: str = "black_on_white"
     width: int = 32
+    dropout: float = 0.1
+    stage_depths: tuple[int, int, int] = (1, 2, 2)
+    attention: str = "none"
+    attention_stages: tuple[int, ...] = (3,)
+    cross_stage: str = "none"
+    csp_stages: tuple[int, ...] = ()
+    csp_split_ratio: float = 0.5
+    classification_head: str = "linear"
+    label_smoothing: float = 0.0
+    logit_scale: float = 32.0
+    angular_margin: float = 0.2
+    margin_warmup_epochs: int = 3
     device: str = "auto"
     seed: int = 7
     num_workers: int = 0
@@ -57,6 +76,10 @@ class TrainingConfig:
     center_by_centroid: bool = False
     otsu_binarize: bool = False
     median_filter_size: int | None = None
+    elastic_probability: float = 0.0
+    elastic_displacement_ratio: float = 0.015
+    erosion_probability: float = 0.0
+    dilation_probability: float = 0.0
     scheduler: str = "cosine"
     scheduler_min_lr: float = 1e-6
     scheduler_patience: int = 3
@@ -98,16 +121,27 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     )
     active_num_classes = config.max_classes or config.num_classes
     preprocess_options = {
+        "input_polarity": config.input_polarity,
         "center_by_centroid": config.center_by_centroid,
         "otsu_binarize": config.otsu_binarize,
         "median_filter_size": config.median_filter_size,
     }
+    augmentation_options = {
+        "elastic_probability": config.elastic_probability,
+        "elastic_displacement_ratio": config.elastic_displacement_ratio,
+        "erosion_probability": config.erosion_probability,
+        "dilation_probability": config.dilation_probability,
+    }
+    train_transform = TrainPreprocessor(
+        config.image_size, **preprocess_options, **augmentation_options
+    )
     train_set = HCCRDataset(
         config.manifest_path,
         "train",
-        TrainPreprocessor(config.image_size, **preprocess_options),
+        train_transform,
         class_id_map,
     )
+    training_class_support = _training_class_support(train_set)
     valid_set = HCCRDataset(
         config.manifest_path,
         "validation",
@@ -118,9 +152,27 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     if class_id_map is not None:
         write_json(output_dir / "class_subset.json", {"class_id_map": class_id_map})
     _write_label_mapping(output_dir, config.manifest_path, class_id_map)
+    label_mapping = {
+        int(class_id): label
+        for class_id, label in json.loads(
+            (output_dir / "labels.json").read_text(encoding="utf-8")
+        )["labels"].items()
+    }
     _save_preprocessing_gallery(
-        train_set, EvalPreprocessor(config.image_size, **preprocess_options), output_dir
+        train_set,
+        EvalPreprocessor(config.image_size, **preprocess_options),
+        output_dir,
+        "preprocessing_gallery.png",
     )
+    saved_random_state = random_state()
+    random_seed(config.seed)
+    _save_preprocessing_gallery(
+        train_set,
+        train_transform,
+        output_dir,
+        "augmentation_gallery.png",
+    )
+    restore_random_state(saved_random_state)
     if config.max_train_samples is not None:
         train_set = Subset(
             train_set, range(min(config.max_train_samples, len(train_set)))
@@ -180,8 +232,29 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             pin_memory=device == "cuda",
         )
     model = build_model(
-        "efficient_hccr", num_classes=active_num_classes, width=config.width
+        "efficient_hccr",
+        num_classes=active_num_classes,
+        width=config.width,
+        dropout=config.dropout,
+        stage_depths=config.stage_depths,
+        attention=config.attention,
+        attention_stages=config.attention_stages,
+        cross_stage=config.cross_stage,
+        csp_stages=config.csp_stages,
+        csp_split_ratio=config.csp_split_ratio,
+        classification_head=config.classification_head,
+        logit_scale=config.logit_scale,
+        angular_margin=config.angular_margin,
+        input_mode=config.input_mode,
     ).to(device)
+    if config.input_mode != "grayscale":
+        _save_directional_input_gallery(
+            train_set,
+            EvalPreprocessor(config.image_size, **preprocess_options),
+            model.input_adapter,
+            config.input_mode,
+            output_dir,
+        )
     resource_profile = profile_model(
         model,
         config.image_size,
@@ -190,11 +263,13 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         config.benchmark_warmup_iterations,
         config.benchmark_iterations,
         config.benchmark_repetitions,
+        EvalPreprocessor(config.image_size, **preprocess_options),
     )
     logger.info("resource profile=%s", resource_profile)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
     )
+    criterion = build_classification_loss(config.label_smoothing)
     scheduler = _build_scheduler(optimizer, config)
     early_stopping = EarlyStopping(
         config.early_stopping_patience, config.early_stopping_min_delta
@@ -203,28 +278,21 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     curves: list[dict] = []
     validation_stability = None
     for epoch in range(1, config.epochs + 1):
-        train_metrics = train_epoch(model, train_loader, optimizer, device)
+        margin_multiplier = _margin_multiplier(
+            epoch, config.margin_warmup_epochs, config.classification_head
+        )
+        train_metrics = train_epoch(
+            model,
+            train_loader,
+            optimizer,
+            device,
+            criterion,
+            margin_multiplier,
+        )
         batch_norm = summarize_batch_norm_state(model)
-        metrics = evaluate(model, valid_loader, device)
-        recalibration_metrics = {}
-        if calibration_loader is not None:
-            recalibrated_model = deepcopy(model)
-            recalibration = recalibrate_batch_norm(
-                recalibrated_model,
-                calibration_loader,
-                device,
-                config.bn_recalibration_batches,
-            )
-            recalibrated_metrics = evaluate(recalibrated_model, valid_loader, device)
-            recalibration_metrics = {
-                "bn_recalibrated_top1": recalibrated_metrics["top1"],
-                "bn_recalibrated_top5": recalibrated_metrics["top5"],
-                "bn_recalibrated_top1_delta": (
-                    recalibrated_metrics["top1"] - metrics["top1"]
-                ),
-                "bn_recalibration": recalibration,
-            }
-            del recalibrated_model
+        metrics = evaluate(
+            model, valid_loader, device, class_support=training_class_support
+        )
         if scheduler is not None:
             if config.scheduler == "plateau":
                 scheduler.step(metrics["top1"])
@@ -237,7 +305,6 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 **train_metrics,
                 **metrics,
                 "batch_norm": batch_norm,
-                **recalibration_metrics,
                 "next_learning_rate": current_learning_rate,
             }
         )
@@ -262,19 +329,42 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 model,
                 output_dir,
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "model": {
                         "name": "efficient_hccr",
                         "in_channels": 1,
+                        "input_mode": config.input_mode,
+                        "effective_input_channels": model.effective_input_channels,
                         "width": config.width,
-                        "stage_depths": [1, 2, 2],
-                        "dropout": 0.1,
+                        "stage_depths": list(config.stage_depths),
+                        "dropout": config.dropout,
+                        "attention": config.attention,
+                        "attention_stages": list(config.attention_stages),
+                        "cross_stage": config.cross_stage,
+                        "cross_stage_route": (
+                            "stage2->stage3" if config.cross_stage != "none" else None
+                        ),
+                        "c_cbam_implementation": (
+                            "paper-inspired parallel CAM/SAM adaptation"
+                            if config.cross_stage == "c_cbam"
+                            else None
+                        ),
+                        "csp_stages": list(config.csp_stages),
+                        "csp_split_ratio": config.csp_split_ratio,
+                        "classification_head": config.classification_head,
+                        "logit_scale": config.logit_scale,
+                        "angular_margin": config.angular_margin,
                         "num_classes": active_num_classes,
+                    },
+                    "training": {
+                        "loss": "cross_entropy",
+                        "label_smoothing": config.label_smoothing,
+                        "margin_warmup_epochs": config.margin_warmup_epochs,
+                        "augmentation": augmentation_options,
                     },
                     "preprocess": {
                         "image_size": config.image_size,
                         "margin": 4,
-                        "invert": False,
                         **preprocess_options,
                     },
                     "manifest_digest": file_digest(config.manifest_path),
@@ -314,11 +404,68 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     model.load_state_dict(
         torch.load(output_dir / "checkpoint.pt", map_location=device, weights_only=True)
     )
-    diagnostic_metrics = evaluate(model, valid_loader, device, output_dir, data_root)
+    diagnostic_metrics = evaluate(
+        model,
+        valid_loader,
+        device,
+        output_dir,
+        data_root,
+        label_mapping,
+        training_class_support,
+    )
     if diagnostic_metrics["top1"] != best_metrics["top1"]:
         raise RuntimeError("best checkpoint metrics do not match diagnostic evaluation")
     best_metrics = {**best_metrics, **diagnostic_metrics}
     update_checkpoint_metrics(output_dir, best_metrics)
+    recalibration_report = None
+    if calibration_loader is not None:
+        recalibrated_model = deepcopy(model)
+        recalibration = recalibrate_batch_norm(
+            recalibrated_model,
+            calibration_loader,
+            device,
+            config.bn_recalibration_batches,
+        )
+        recalibrated_metrics = evaluate(
+            recalibrated_model,
+            valid_loader,
+            device,
+            output_dir / "bn_recalibrated",
+            data_root,
+            label_mapping,
+            training_class_support,
+        )
+        recalibration_report = {
+            "source_checkpoint": "checkpoint.pt",
+            "checkpoint": "checkpoint_recalibrated.pt",
+            "top1_delta": recalibrated_metrics["top1"] - best_metrics["top1"],
+            "top5_delta": recalibrated_metrics["top5"] - best_metrics["top5"],
+            "metrics": recalibrated_metrics,
+            "batch_norm": recalibration,
+        }
+        save_recalibrated_checkpoint(
+            recalibrated_model,
+            output_dir,
+            recalibrated_metrics,
+            recalibration_report,
+        )
+        write_json(output_dir / "bn_recalibration.json", recalibration_report)
+        save_learning_curves(
+            output_dir,
+            curves,
+            recalibrated={
+                "epoch": validation_stability["best_epoch"],
+                "top1": recalibrated_metrics["top1"],
+            },
+        )
+        logger.info(
+            "BN recalibration completed batches=%s samples=%s top1=%.6f delta=%.6f",
+            recalibration["batches"],
+            recalibration["samples"],
+            recalibrated_metrics["top1"],
+            recalibration_report["top1_delta"],
+        )
+        del recalibrated_model
     write_json(
         output_dir / "metrics.json",
         {
@@ -326,10 +473,14 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             "best": best_metrics,
             "latest": metrics,
             "validation_stability": validation_stability,
+            "bn_recalibrated": (
+                recalibration_report["metrics"] if recalibration_report else None
+            ),
+            "bn_recalibration": recalibration_report,
         },
     )
     _append_experiment_summary(
-        config.output_dir, run_id, config, best_metrics, resource_profile
+        config.output_dir, run_id, config, best_metrics, resource_profile, curves
     )
     logger.info("training completed run_id=%s best_metrics=%s", run_id, best_metrics)
     close_logging(logger)
@@ -354,6 +505,65 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("bn_recalibration_batches must be non-negative")
     if config.validation_drop_threshold < 0:
         raise ValueError("validation_drop_threshold must be non-negative")
+    if len(config.stage_depths) != 3 or any(depth < 1 for depth in config.stage_depths):
+        raise ValueError("stage_depths must contain three positive values")
+    if not 0 <= config.dropout < 1:
+        raise ValueError("dropout must be in [0, 1)")
+    if config.attention not in {"none", "se", "eca"}:
+        raise ValueError("attention must be one of: none, se, eca")
+    if len(set(config.attention_stages)) != len(config.attention_stages) or any(
+        stage not in {1, 2, 3} for stage in config.attention_stages
+    ):
+        raise ValueError("attention_stages must contain unique values from 1 to 3")
+    if config.cross_stage not in {"none", "projected_residual", "c_cbam"}:
+        raise ValueError("cross_stage must be one of: none, projected_residual, c_cbam")
+    if len(set(config.csp_stages)) != len(config.csp_stages) or any(
+        stage not in {2, 3} for stage in config.csp_stages
+    ):
+        raise ValueError("csp_stages must contain unique values from 2 to 3")
+    if not 0.0 < config.csp_split_ratio < 1.0:
+        raise ValueError("csp_split_ratio must be between 0 and 1")
+    if config.classification_head not in {"linear", "cosface", "arcface"}:
+        raise ValueError("classification_head must be one of: linear, cosface, arcface")
+    if not 0 <= config.label_smoothing < 1:
+        raise ValueError("label_smoothing must be in [0, 1)")
+    if config.logit_scale <= 0:
+        raise ValueError("logit_scale must be positive")
+    if not 0 <= config.angular_margin < torch.pi / 2:
+        raise ValueError("angular_margin must be in [0, pi/2)")
+    if config.margin_warmup_epochs < 0:
+        raise ValueError("margin_warmup_epochs must be non-negative")
+    if config.input_mode not in {
+        "grayscale",
+        "grayscale_sobel",
+        "grayscale_gabor",
+    }:
+        raise ValueError(
+            "input_mode must be one of: grayscale, grayscale_sobel, grayscale_gabor"
+        )
+    if config.input_polarity not in {"black_on_white", "white_on_black"}:
+        raise ValueError(
+            "input_polarity must be one of: black_on_white, white_on_black"
+        )
+    probabilities = (
+        config.elastic_probability,
+        config.erosion_probability,
+        config.dilation_probability,
+    )
+    if any(not 0 <= probability <= 1 for probability in probabilities):
+        raise ValueError("augmentation probabilities must be between 0 and 1")
+    if config.erosion_probability + config.dilation_probability > 1:
+        raise ValueError("erosion and dilation probabilities must sum to at most 1")
+    if not 0 <= config.elastic_displacement_ratio <= 0.015:
+        raise ValueError("elastic_displacement_ratio must be in [0, 0.015]")
+
+
+def _margin_multiplier(epoch: int, warmup_epochs: int, head: str) -> float:
+    if head == "linear" or warmup_epochs == 0:
+        return 1.0
+    if warmup_epochs == 1:
+        return 1.0
+    return min(1.0, (epoch - 1) / (warmup_epochs - 1))
 
 
 def _build_scheduler(optimizer: torch.optim.Optimizer, config: TrainingConfig):
@@ -378,6 +588,7 @@ def _save_preprocessing_gallery(
     dataset: HCCRDataset,
     transform: EvalPreprocessor,
     output_dir: Path,
+    filename: str,
 ) -> None:
     rows_by_label: dict[str, dict[str, str]] = {}
     for row in dataset.rows:
@@ -393,13 +604,46 @@ def _save_preprocessing_gallery(
         save_gallery(
             images,
             transform,
-            output_dir / "preprocessing_gallery.png",
+            output_dir / filename,
             labels,
         )
 
 
 def _unicode_codepoint(label: str) -> str:
     return " ".join(f"U+{ord(character):04X}" for character in label)
+
+
+def _save_directional_input_gallery(
+    dataset: HCCRDataset,
+    transform: EvalPreprocessor,
+    input_adapter,
+    input_mode: str,
+    output_dir: Path,
+) -> None:
+    rows_by_label: dict[str, dict[str, str]] = {}
+    for row in dataset.rows:
+        rows_by_label.setdefault(row["unicode_label"], row)
+        if len(rows_by_label) == 8:
+            break
+    images, labels = [], []
+    for label, row in rows_by_label.items():
+        with Image.open(dataset.root / row["source_file"]) as image:
+            images.append(image.convert("L"))
+            labels.append(_unicode_codepoint(label))
+    channel_names = (
+        ("grayscale", "sobel magnitude")
+        if input_mode == "grayscale_sobel"
+        else ("grayscale", "gabor 0°", "gabor 45°", "gabor 90°", "gabor 135°")
+    )
+    if images:
+        save_channel_gallery(
+            images,
+            transform,
+            input_adapter,
+            channel_names,
+            output_dir / "directional_input_gallery.png",
+            labels,
+        )
 
 
 def _write_label_mapping(
@@ -417,36 +661,99 @@ def _write_label_mapping(
     write_json(output_dir / "labels.json", {"labels": output_labels})
 
 
+def _training_class_support(dataset: HCCRDataset) -> dict[int, int]:
+    support: dict[int, int] = {}
+    for row in dataset.rows:
+        class_id = int(row["class_id"])
+        model_id = dataset.class_id_map[class_id] if dataset.class_id_map else class_id
+        support[model_id] = support.get(model_id, 0) + 1
+    return support
+
+
 def _append_experiment_summary(
     experiments_dir: Path,
     run_id: str,
     config: TrainingConfig,
     metrics: dict[str, float],
     resource_profile: dict,
+    curves: list[dict],
 ) -> None:
     benchmark = resource_profile["inference_benchmarks"][0]
+    end_to_end = resource_profile["end_to_end_batch1_benchmark"]
+    full_class = resource_profile["full_class_projection"]
+    mac_coverage = resource_profile["mac_coverage"]
     summary_path = experiments_dir / "experiment_summary.csv"
     import csv
 
     fields = [
         "run_id",
         "model",
+        "input_mode",
+        "input_polarity",
+        "effective_input_channels",
         "width",
+        "dropout",
+        "stage_depths",
+        "attention",
+        "attention_stages",
+        "cross_stage",
+        "csp_stages",
+        "csp_split_ratio",
+        "classification_head",
+        "label_smoothing",
+        "logit_scale",
+        "angular_margin",
+        "margin_warmup_epochs",
+        "elastic_probability",
+        "elastic_displacement_ratio",
+        "erosion_probability",
+        "dilation_probability",
         "epochs",
         "image_size",
         "top1",
         "top5",
+        "macro_recall",
+        "head_recall",
+        "mid_recall",
+        "tail_recall",
+        "expected_calibration_error",
         "parameter_count",
+        "backbone_parameter_count",
+        "head_parameter_count",
         "estimated_macs",
+        "estimated_backbone_macs",
+        "estimated_head_macs",
+        "estimated_input_adapter_macs",
+        "mac_coverage_complete",
+        "unsupported_operator_types",
+        "full_class_num_classes",
+        "full_class_parameter_count",
+        "full_class_estimated_macs",
         "latency_p50_ms",
         "latency_p95_ms",
+        "latency_p99_ms",
+        "end_to_end_latency_p50_ms",
+        "end_to_end_latency_p95_ms",
+        "end_to_end_latency_p99_ms",
         "samples_per_second",
+        "peak_inference_cuda_memory_mib",
+        "peak_training_cuda_memory_mib",
         "learning_rate",
         "weight_decay",
         "scheduler",
         "seed",
         "max_classes",
     ]
+    if summary_path.exists():
+        with summary_path.open(newline="", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            existing_rows = list(reader)
+            existing_fields = reader.fieldnames or []
+        if existing_fields != fields:
+            with summary_path.open("w", newline="", encoding="utf-8") as file:
+                writer = csv.DictWriter(file, fieldnames=fields)
+                writer.writeheader()
+                writer.writerows(existing_rows)
     write_header = not summary_path.exists()
     with summary_path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=fields)
@@ -456,16 +763,66 @@ def _append_experiment_summary(
             {
                 "run_id": run_id,
                 "model": "efficient_hccr",
+                "input_mode": config.input_mode,
+                "input_polarity": config.input_polarity,
+                "effective_input_channels": resource_profile[
+                    "effective_input_channels"
+                ],
                 "width": config.width,
+                "dropout": config.dropout,
+                "stage_depths": ",".join(map(str, config.stage_depths)),
+                "attention": config.attention,
+                "attention_stages": ",".join(map(str, config.attention_stages)),
+                "cross_stage": config.cross_stage,
+                "csp_stages": ",".join(map(str, config.csp_stages)),
+                "csp_split_ratio": config.csp_split_ratio,
+                "classification_head": config.classification_head,
+                "label_smoothing": config.label_smoothing,
+                "logit_scale": config.logit_scale,
+                "angular_margin": config.angular_margin,
+                "margin_warmup_epochs": config.margin_warmup_epochs,
+                "elastic_probability": config.elastic_probability,
+                "elastic_displacement_ratio": config.elastic_displacement_ratio,
+                "erosion_probability": config.erosion_probability,
+                "dilation_probability": config.dilation_probability,
                 "epochs": config.epochs,
                 "image_size": config.image_size,
                 "top1": metrics["top1"],
                 "top5": metrics["top5"],
+                "macro_recall": metrics.get("macro_recall"),
+                "head_recall": metrics.get("head_recall"),
+                "mid_recall": metrics.get("mid_recall"),
+                "tail_recall": metrics.get("tail_recall"),
+                "expected_calibration_error": metrics.get("expected_calibration_error"),
                 "parameter_count": resource_profile["parameter_count"],
+                "backbone_parameter_count": resource_profile[
+                    "backbone_parameter_count"
+                ],
+                "head_parameter_count": resource_profile["head_parameter_count"],
                 "estimated_macs": resource_profile["estimated_macs"],
+                "estimated_backbone_macs": resource_profile["estimated_backbone_macs"],
+                "estimated_head_macs": resource_profile["estimated_head_macs"],
+                "estimated_input_adapter_macs": resource_profile[
+                    "estimated_input_adapter_macs"
+                ],
+                "mac_coverage_complete": mac_coverage["complete"],
+                "unsupported_operator_types": json.dumps(
+                    mac_coverage["unsupported_operator_types"]
+                ),
+                "full_class_num_classes": full_class.get("num_classes"),
+                "full_class_parameter_count": full_class.get("total_parameter_count"),
+                "full_class_estimated_macs": full_class.get("total_macs"),
                 "latency_p50_ms": benchmark["latency_p50_ms"],
                 "latency_p95_ms": benchmark["latency_p95_ms"],
+                "latency_p99_ms": benchmark["latency_p99_ms"],
+                "end_to_end_latency_p50_ms": end_to_end["latency_p50_ms"],
+                "end_to_end_latency_p95_ms": end_to_end["latency_p95_ms"],
+                "end_to_end_latency_p99_ms": end_to_end["latency_p99_ms"],
                 "samples_per_second": benchmark["samples_per_second"],
+                "peak_inference_cuda_memory_mib": benchmark["peak_cuda_memory_mib"],
+                "peak_training_cuda_memory_mib": max(
+                    epoch.get("peak_cuda_memory_mib", 0.0) for epoch in curves
+                ),
                 "learning_rate": config.learning_rate,
                 "weight_decay": config.weight_decay,
                 "scheduler": config.scheduler,

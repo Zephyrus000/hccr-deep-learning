@@ -79,6 +79,50 @@ hccr compare-runs `
   --max-p95-latency-ratio 1.10
 ```
 
+## Automated seed sweeps and ablations
+
+Use the configuration-driven runner to execute variants and seeds sequentially.
+It captures each child process in a dedicated log, supports `--resume`, profiles
+the trained and projected 7,186-class heads on the requested devices, and writes
+variant aggregates under `experiments/sweeps/<experiment-id>/`.
+
+Validate an experiment matrix without training:
+
+```powershell
+python scripts/run_experiments.py `
+  --config configs/experiment/example_1k_ablation.yaml `
+  --dry-run
+```
+
+Run one configuration for three seeds using arbitrary train CLI arguments:
+
+```powershell
+python scripts/run_experiments.py `
+  --experiment-id baseline-1k-three-seeds `
+  --seeds 7 17 29 `
+  --set max_classes=1000 `
+  --set image_size=96 `
+  --set width=64 `
+  --set epochs=20 `
+  --profile-devices cuda cpu
+```
+
+Compare two preprocessing options without creating a Cartesian product:
+
+```powershell
+python scripts/run_experiments.py `
+  --experiment-id polarity-1k `
+  --seeds 7 17 29 `
+  --set max_classes=1000 `
+  --variant '{"name":"black","args":{"input_polarity":"black_on_white"}}' `
+  --variant '{"name":"white","args":{"input_polarity":"white_on_black"}}' `
+  --profile-devices cuda cpu
+```
+
+The first declared variant is the comparison baseline. Prefer YAML for larger
+matrices; every `base_args` and variant `args` key maps directly to a `train`
+CLI option.
+
 ## Training configuration
 
 The documented baseline is [configs/experiment/baseline.yaml](configs/experiment/baseline.yaml).
@@ -92,10 +136,12 @@ effective values are always captured in a run's `config.json`.
 | `--scheduler` | `none`, `cosine`, or validation-top-1 `plateau`. |
 | `--early-stopping-patience` | Stop after this many non-improving validation epochs; `0` disables it. |
 | `--width` | Base channel width of `EfficientHCCRNet`. |
+| `--dropout` | Classifier/embedding dropout probability. |
 | `--image-size` | Square model input size. |
 | `--max-classes`, `--class-subset-seed` | Deterministic fast benchmark subset. |
 | `--center-by-centroid` | Optional foreground-centroid normalization. |
 | `--otsu-binarize`, `--median-filter-size` | Optional denoising/binarization ablations. |
+| `--input-polarity` | `black_on_white` control or `white_on_black` inversion ablation. |
 | `--device` | `auto`, `cpu`, or `cuda`. |
 | `--seed` | Reproducible model/data-order/augmentation setup. |
 
@@ -111,9 +157,10 @@ All application code lives in `src/hccr`.
 | `hccr.preprocessing` | Deterministic eval normalization; random affine train augmentation; optional centroid, Otsu and median filtering; visual gallery. |
 | `hccr.models` | `EfficientHCCRNet`, its depthwise-separable residual blocks and model factory. |
 | `hccr.training` | End-to-end workflow, train epoch, AdamW artifacts, callbacks, resource profiling and architecture diagnostics. |
-| `hccr.evaluation` | Top-k metrics, validation loop, calibration/per-class/error reports and static plots. |
+| `hccr.evaluation` | Top-k and macro/head/mid/tail metrics, validation loop, calibration/per-class/confusion/error reports and static plots. |
 | `hccr.inference` | `Predictor`, which returns artifact-label-aware top-k scores from a prepared tensor. |
 | `hccr.experiments` | Baseline/candidate quality gate using `experiment_summary.csv`. |
+| `hccr.experiment_runner` | Sequential custom-argument seed/variant orchestration, resume, logs, aggregation and dual-device post-profiling. |
 | `hccr.utils` | Device resolution, structured JSON experiment metadata and run-scoped logging. |
 
 ### `hccr.data`
@@ -143,7 +190,7 @@ All application code lives in `src/hccr`.
 
 ### `hccr.preprocessing`
 
-- `EvalPreprocessor`: grayscale conversion, optional invert/median/Otsu,
+- `EvalPreprocessor`: grayscale conversion, optional polarity/median/Otsu,
   foreground crop, aspect-ratio-preserving resize, padding and optional
   centroid centering. It must remain deterministic.
 - `TrainPreprocessor`: inherits eval normalization, then applies random
@@ -174,16 +221,18 @@ batch-1 p95 latency, not parameter count alone.
   compute timing statistics.
 - `callbacks.py`: validation-top-1 early stopping with `patience` and
   `min_delta`.
-- `diagnostics.py`: parameter size, MAC/FLOP estimate, latency percentiles and
-  top-level activation/gradient diagnostics.
+- `diagnostics.py`: decomposed parameter/MAC cost, operator coverage,
+  model-only/end-to-end latency, full-class head projection and top-level
+  activation/gradient diagnostics.
 - `artifacts.py`: model checkpoint and checkpoint metadata persistence.
 
 ### `hccr.evaluation`
 
 - `metrics.py`: top-1 and top-5 classification metrics.
 - `evaluator.py`: inference-mode validation aggregation.
-- `diagnostics.py`: per-class accuracy, top-k error CSV, ECE/reliability plot,
-  calibration bins, validation health and image error gallery.
+- `diagnostics.py`: per-class and macro/head/mid/tail recall, complete confusion
+  pairs, top-k error CSV, ECE/reliability plot, calibration bins, validation
+  health and image error gallery.
 - `reports.py`: learning curve, selected-class confusion matrix and confidence
   distribution figures.
 - `analysis.py`: lightweight error/confusion analysis helpers.

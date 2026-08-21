@@ -5,13 +5,13 @@ from __future__ import annotations
 import csv
 import json
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import matplotlib
 import torch
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -20,15 +20,24 @@ import matplotlib.pyplot as plt
 class StreamingValidationDiagnostics:
     """Accumulate validation reports batch by batch without retaining logits."""
 
-    def __init__(self, output_dir: Path, source_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        output_dir: Path,
+        source_root: Path | None = None,
+        labels: Mapping[int, str] | None = None,
+        class_support: Mapping[int, int] | None = None,
+    ) -> None:
         self.output_dir = output_dir
         self.source_root = source_root
+        self.labels = dict(labels or {})
+        self.class_support = dict(class_support or {})
         self.support: Counter[int] = Counter()
         self.hits: Counter[int] = Counter()
         self.bin_counts = [0] * 10
         self.bin_correct = [0] * 10
         self.bin_confidence = [0.0] * 10
         self.errors: list[dict[str, Any]] = []
+        self.confusion_pairs: Counter[tuple[int, int]] = Counter()
         self.total_samples = 0
         self.total_confidence = 0.0
 
@@ -73,17 +82,53 @@ class StreamingValidationDiagnostics:
                         "top5": indices,
                     }
                 )
+            if not is_correct:
+                self.confusion_pairs[(target, prediction)] += 1
 
     def write(self) -> dict[str, float]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        _write_per_class_metrics(self.output_dir, self.support, self.hits)
-        _write_error_records(self.output_dir, self.errors)
+        recall = summarize_recall_by_support(
+            self.support, self.hits, self.class_support
+        )
+        class_tiers = support_tiers(self.class_support or self.support)
+        _write_per_class_metrics(
+            self.output_dir,
+            self.support,
+            self.hits,
+            self.class_support,
+            class_tiers,
+        )
+        _write_confusion_pairs(self.output_dir, self.confusion_pairs, self.labels)
+        (self.output_dir / "class_tiers.json").write_text(
+            json.dumps(
+                {
+                    "source": (
+                        "training_support"
+                        if self.class_support
+                        else "evaluation_support_fallback"
+                    ),
+                    "policy": "bottom_20_percent_tail_top_20_percent_head",
+                    "classes": {
+                        str(class_id): {
+                            "train_support": self.class_support.get(class_id),
+                            "evaluation_support": self.support.get(class_id, 0),
+                            "tier": tier,
+                        }
+                        for class_id, tier in sorted(class_tiers.items())
+                    },
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        _write_error_records(self.output_dir, self.errors, self.labels)
         ece = _write_reliability_from_bins(
             self.output_dir, self.bin_counts, self.bin_correct, self.bin_confidence
         )
         if self.source_root is not None:
             _write_error_gallery_from_records(
-                self.output_dir, self.errors, self.source_root
+                self.output_dir, self.errors, self.source_root, self.labels
             )
         health = {
             "samples": self.total_samples,
@@ -91,6 +136,8 @@ class StreamingValidationDiagnostics:
             "mean_confidence": self.total_confidence / self.total_samples,
             "expected_calibration_error": ece,
             "recorded_errors": len(self.errors),
+            "unique_confusion_pairs": len(self.confusion_pairs),
+            **recall,
         }
         (self.output_dir / "validation_health.json").write_text(
             json.dumps(health, indent=2) + "\n", encoding="utf-8"
@@ -112,7 +159,8 @@ def write_validation_diagnostics(
     correct = predictions.eq(targets)
     support = Counter(targets.tolist())
     hits = Counter(targets[correct].tolist())
-    _write_per_class_metrics(output_dir, support, hits)
+    class_tiers = support_tiers(support)
+    _write_per_class_metrics(output_dir, support, hits, support, class_tiers)
     _write_error_table(output_dir, probabilities, targets, predictions, rows)
     ece = _write_reliability_diagram(output_dir, confidence, correct)
     if source_root is not None:
@@ -130,24 +178,126 @@ def write_validation_diagnostics(
     return health
 
 
+def support_tiers(class_support: Mapping[int, int]) -> dict[int, str]:
+    """Assign deterministic head/mid/tail tiers from ranked class support."""
+    ranked = sorted(
+        class_support, key=lambda class_id: (class_support[class_id], class_id)
+    )
+    if not ranked:
+        return {}
+    if len(ranked) == 1:
+        return {ranked[0]: "mid"}
+    tier_size = max(1, len(ranked) // 5)
+    tiers = {class_id: "mid" for class_id in ranked}
+    for class_id in ranked[:tier_size]:
+        tiers[class_id] = "tail"
+    for class_id in ranked[-tier_size:]:
+        tiers[class_id] = "head"
+    return tiers
+
+
+def summarize_recall_by_support(
+    evaluation_support: Mapping[int, int],
+    hits: Mapping[int, int],
+    class_support: Mapping[int, int] | None = None,
+) -> dict[str, float]:
+    """Return macro and support-tier recall for observed evaluation classes."""
+    recalls = {
+        class_id: hits.get(class_id, 0) / count
+        for class_id, count in evaluation_support.items()
+        if count > 0
+    }
+    if not recalls:
+        return {
+            "macro_recall": 0.0,
+            "head_recall": 0.0,
+            "mid_recall": 0.0,
+            "tail_recall": 0.0,
+        }
+    tiers = support_tiers(class_support or evaluation_support)
+
+    def tier_mean(tier: str) -> float:
+        values = [
+            recall
+            for class_id, recall in recalls.items()
+            if tiers.get(class_id) == tier
+        ]
+        return sum(values) / len(values) if values else 0.0
+
+    return {
+        "macro_recall": sum(recalls.values()) / len(recalls),
+        "head_recall": tier_mean("head"),
+        "mid_recall": tier_mean("mid"),
+        "tail_recall": tier_mean("tail"),
+    }
+
+
 def _write_per_class_metrics(
-    output_dir: Path, support: Counter[int], hits: Counter[int]
+    output_dir: Path,
+    support: Mapping[int, int],
+    hits: Mapping[int, int],
+    class_support: Mapping[int, int],
+    class_tiers: Mapping[int, str],
 ) -> None:
     with (output_dir / "per_class_metrics.csv").open(
         "w", newline="", encoding="utf-8"
     ) as file:
         writer = csv.DictWriter(
-            file, fieldnames=["class_id", "support", "top1_accuracy"]
+            file,
+            fieldnames=[
+                "class_id",
+                "train_support",
+                "validation_support",
+                "support_tier",
+                "top1_accuracy",
+                "recall",
+            ],
         )
         writer.writeheader()
         writer.writerows(
             {
                 "class_id": class_id,
-                "support": count,
-                "top1_accuracy": hits[class_id] / count,
+                "train_support": class_support.get(class_id),
+                "validation_support": count,
+                "support_tier": class_tiers.get(class_id, "mid"),
+                "top1_accuracy": hits.get(class_id, 0) / count,
+                "recall": hits.get(class_id, 0) / count,
             }
             for class_id, count in sorted(support.items())
         )
+
+
+def _write_confusion_pairs(
+    output_dir: Path,
+    pairs: Mapping[tuple[int, int], int],
+    labels: Mapping[int, str] | None = None,
+) -> None:
+    with (output_dir / "confusion_pairs.csv").open(
+        "w", newline="", encoding="utf-8"
+    ) as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "target",
+                "target_label",
+                "prediction",
+                "prediction_label",
+                "count",
+            ],
+        )
+        writer.writeheader()
+        for (target, prediction), count in sorted(
+            pairs.items(), key=lambda item: (-item[1], item[0])
+        ):
+            writer.writerow(
+                {
+                    "target": target,
+                    "target_label": (labels or {}).get(target, ""),
+                    "prediction": prediction,
+                    "prediction_label": (labels or {}).get(prediction, ""),
+                    "count": count,
+                }
+            )
 
 
 def _write_error_table(
@@ -265,6 +415,7 @@ def _write_error_gallery(
     targets: torch.Tensor,
     rows: Sequence[dict[str, Any]],
     source_root: Path,
+    labels: Mapping[int, str] | None = None,
 ) -> None:
     errors = [
         (row, target.item(), prediction.item())
@@ -273,7 +424,7 @@ def _write_error_gallery(
     ][:25]
     if not errors:
         return
-    tile_size, caption_height, columns = 112, 36, 5
+    tile_size, caption_height, columns = 112, 42, 5
     canvas = Image.new(
         "RGB",
         (
@@ -283,6 +434,7 @@ def _write_error_gallery(
         "white",
     )
     draw = ImageDraw.Draw(canvas)
+    font = _gallery_font(12)
     for index, (row, target, prediction) in enumerate(errors):
         image_path = source_root / row["source_file"]
         with Image.open(image_path) as image:
@@ -297,20 +449,31 @@ def _write_error_gallery(
                 y + (tile_size - tile.height) // 2,
             ),
         )
-        draw.text(
+        draw.multiline_text(
             (x + 2, y + tile_size + 2),
-            f"true={target} pred={prediction}",
+            (
+                f"true={_display_label(target, labels)}\n"
+                f"pred={_display_label(prediction, labels)}"
+            ),
             fill="black",
+            font=font,
+            spacing=1,
         )
     canvas.save(output_dir / "validation_error_gallery.png")
 
 
-def _write_error_records(output_dir: Path, errors: Sequence[dict[str, Any]]) -> None:
+def _write_error_records(
+    output_dir: Path,
+    errors: Sequence[dict[str, Any]],
+    labels: Mapping[int, str] | None = None,
+) -> None:
     fields = [
         "sample_id",
         "source_file",
         "target",
+        "target_label",
         "prediction",
+        "prediction_label",
         "confidence",
         "margin",
         "top5",
@@ -326,7 +489,9 @@ def _write_error_records(output_dir: Path, errors: Sequence[dict[str, Any]]) -> 
                     "sample_id": error["row"]["sample_id"],
                     "source_file": error["row"]["source_file"],
                     "target": error["target"],
+                    "target_label": (labels or {}).get(error["target"], ""),
                     "prediction": error["prediction"],
+                    "prediction_label": (labels or {}).get(error["prediction"], ""),
                     "confidence": error["confidence"],
                     "margin": error["margin"],
                     "top5": json.dumps(error["top5"]),
@@ -392,11 +557,32 @@ def _write_reliability_from_bins(
 
 
 def _write_error_gallery_from_records(
-    output_dir: Path, errors: Sequence[dict[str, Any]], source_root: Path
+    output_dir: Path,
+    errors: Sequence[dict[str, Any]],
+    source_root: Path,
+    labels: Mapping[int, str] | None = None,
 ) -> None:
     if not errors:
         return
     rows = [error["row"] for error in errors[:25]]
     predictions = torch.tensor([error["prediction"] for error in errors[:25]])
     targets = torch.tensor([error["target"] for error in errors[:25]])
-    _write_error_gallery(output_dir, predictions, targets, rows, source_root)
+    _write_error_gallery(output_dir, predictions, targets, rows, source_root, labels)
+
+
+def _display_label(class_id: int, labels: Mapping[int, str] | None) -> str:
+    label = (labels or {}).get(class_id)
+    return f"{class_id}/{label}" if label else str(class_id)
+
+
+def _gallery_font(size: int):
+    candidates = (
+        Path("C:/Windows/Fonts/msyh.ttc"),
+        Path("C:/Windows/Fonts/simhei.ttf"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        Path("/System/Library/Fonts/PingFang.ttc"),
+    )
+    for path in candidates:
+        if path.is_file():
+            return ImageFont.truetype(str(path), size=size)
+    return ImageFont.load_default()

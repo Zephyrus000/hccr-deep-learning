@@ -37,11 +37,15 @@ class HCCRDataset(Dataset[tuple[torch.Tensor, int, dict[str, str]]]):
         row = self.rows[index]
         image = Image.open(self.root / row["source_file"]).convert("L")
         image = self.transform(image) if self.transform else image
+        metadata = dict(row)
+        metadata["applied_augmentations"] = ",".join(
+            image.info.get("applied_augmentations", ())
+        )
         pixels = torch.frombuffer(bytearray(image.tobytes()), dtype=torch.uint8)
         tensor = pixels.reshape(1, image.height, image.width).float().div(255)
         class_id = int(row["class_id"])
         target = self.class_id_map[class_id] if self.class_id_map else class_id
-        return tensor, target, row
+        return tensor, target, metadata
 
 
 def select_class_subset(

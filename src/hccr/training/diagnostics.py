@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from PIL import Image, ImageDraw
 from torch import nn
 
 from hccr.utils.experiment import write_json
@@ -24,27 +25,42 @@ def profile_model(
     warmup_iterations: int = 20,
     benchmark_iterations: int = 200,
     benchmark_repetitions: int = 5,
+    preprocessing_transform: Callable[[Image.Image], Image.Image] | None = None,
+    full_class_num_classes: int = 7186,
 ) -> dict[str, Any]:
     """Measure complexity and robust batch-1/8/32 forward-pass latency."""
     if min(warmup_iterations, benchmark_iterations, benchmark_repetitions) < 1:
         raise ValueError(
             "benchmark warm-up, iterations and repetitions must be positive"
         )
-    parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    parameter_counts = _parameter_counts_by_component(model)
+    parameter_count = parameter_counts["total"]
     trainable_parameters = sum(
         parameter.numel() for parameter in model.parameters() if parameter.requires_grad
     )
-    model_bytes = sum(
-        parameter.numel() * parameter.element_size() for parameter in model.parameters()
+    parameter_bytes = _parameter_bytes_by_component(model)
+    model_bytes = parameter_bytes["total"]
+    macs = estimate_macs_by_component(model, image_size, device)
+    full_class_projection = project_classifier_cost(
+        model, parameter_counts, parameter_bytes, macs, full_class_num_classes
     )
-    macs = estimate_macs(model, image_size, device)
     profile = {
         "device": device,
+        "effective_input_channels": getattr(model, "effective_input_channels", 1),
         "parameter_count": parameter_count,
         "trainable_parameter_count": trainable_parameters,
         "parameter_size_mib": model_bytes / (1024**2),
-        "estimated_macs": macs,
-        "estimated_flops": macs * 2,
+        "backbone_parameter_count": parameter_counts["backbone"],
+        "head_parameter_count": parameter_counts["head"],
+        "backbone_parameter_size_mib": parameter_bytes["backbone"] / (1024**2),
+        "head_parameter_size_mib": parameter_bytes["head"] / (1024**2),
+        "estimated_macs": macs["total"],
+        "estimated_backbone_macs": macs["backbone"],
+        "estimated_head_macs": macs["head"],
+        "estimated_input_adapter_macs": macs["input_adapter"],
+        "estimated_flops": macs["total"] * 2,
+        "mac_coverage": _mac_coverage(model),
+        "full_class_projection": full_class_projection,
         "benchmark_protocol": {
             "warmup_iterations": warmup_iterations,
             "timed_iterations": benchmark_iterations,
@@ -64,23 +80,129 @@ def profile_model(
             )
             for batch_size in (1, 8, 32)
         ],
+        "end_to_end_batch1_benchmark": (
+            _benchmark_end_to_end(
+                model,
+                preprocessing_transform,
+                image_size,
+                device,
+                warmup_iterations,
+                benchmark_iterations,
+                benchmark_repetitions,
+            )
+            if preprocessing_transform is not None
+            else None
+        ),
     }
     write_json(output_dir / "resource_profile.json", profile)
     return profile
 
 
+def project_classifier_cost(
+    model: nn.Module,
+    parameter_counts: dict[str, int],
+    parameter_bytes: dict[str, int],
+    macs: dict[str, int],
+    num_classes: int,
+) -> dict[str, Any]:
+    """Project parameter storage and MACs for a different classifier size."""
+    if num_classes < 2:
+        raise ValueError("full-class projection requires at least two classes")
+    classifier = getattr(model, "classifier", None)
+    if isinstance(classifier, nn.Sequential):
+        linear = next(
+            (
+                module
+                for module in reversed(classifier)
+                if isinstance(module, nn.Linear)
+            ),
+            None,
+        )
+    else:
+        linear = classifier if isinstance(classifier, nn.Linear) else None
+    if linear is None:
+        return {
+            "status": "unavailable",
+            "reason": "model does not expose a Linear classifier boundary",
+            "num_classes": num_classes,
+        }
+    projected_head_parameters = linear.in_features * num_classes
+    if linear.bias is not None:
+        projected_head_parameters += num_classes
+    element_size = linear.weight.element_size()
+    projected_head_bytes = projected_head_parameters * element_size
+    projected_head_macs = linear.in_features * num_classes
+    return {
+        "status": "available",
+        "num_classes": num_classes,
+        "embedding_dim": linear.in_features,
+        "head_parameter_count": projected_head_parameters,
+        "head_parameter_size_mib": projected_head_bytes / (1024**2),
+        "head_macs": projected_head_macs,
+        "total_parameter_count": parameter_counts["backbone"]
+        + projected_head_parameters,
+        "total_parameter_size_mib": (parameter_bytes["backbone"] + projected_head_bytes)
+        / (1024**2),
+        "total_macs": macs["backbone"] + projected_head_macs,
+    }
+
+
+def _mac_coverage(model: nn.Module) -> dict[str, Any]:
+    counted_types = set()
+    unsupported_types = set()
+    for module in model.modules():
+        if len(tuple(module.children())) > 0:
+            continue
+        if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Linear)) or callable(
+            getattr(module, "fixed_filter_macs", None)
+        ):
+            counted_types.add(type(module).__name__)
+        else:
+            unsupported_types.add(type(module).__name__)
+    return {
+        "estimator": "forward_hooks_conv_linear_and_fixed_filters",
+        "complete": not unsupported_types,
+        "counted_operator_types": sorted(counted_types),
+        "unsupported_operator_types": sorted(unsupported_types),
+        "note": (
+            "Unsupported operators are excluded from estimated MACs; measured "
+            "latency remains authoritative."
+        ),
+    }
+
+
 def estimate_macs(model: nn.Module, image_size: int, device: str) -> int:
     """Estimate Conv2d/Linear MACs with forward hooks; unsupported ops are omitted."""
-    total_macs = 0
+    return estimate_macs_by_component(model, image_size, device)["total"]
+
+
+def estimate_macs_by_component(
+    model: nn.Module, image_size: int, device: str
+) -> dict[str, int]:
+    """Estimate total, backbone and classifier Conv2d/Linear MACs."""
+    macs = {"total": 0, "backbone": 0, "head": 0, "input_adapter": 0}
+    component_by_module = {
+        id(module): (
+            "head"
+            if name == "classifier" or name.startswith("classifier.")
+            else "backbone"
+        )
+        for name, module in model.named_modules()
+    }
+    input_adapter_modules = {
+        id(module)
+        for name, module in model.named_modules()
+        if name == "input_adapter" or name.startswith("input_adapter.")
+    }
 
     def hook(
         module: nn.Module, _inputs: tuple[torch.Tensor], output: torch.Tensor
     ) -> None:
-        nonlocal total_macs
+        operation_macs = 0
         if isinstance(module, nn.Conv2d):
             output_height, output_width = output.shape[-2:]
             kernel_height, kernel_width = module.kernel_size
-            total_macs += (
+            operation_macs = (
                 output.shape[0]
                 * output.shape[1]
                 * output_height
@@ -89,13 +211,29 @@ def estimate_macs(model: nn.Module, image_size: int, device: str) -> int:
                 * kernel_height
                 * kernel_width
             )
+        elif isinstance(module, nn.Conv1d):
+            operation_macs = (
+                output.numel()
+                * (module.in_channels // module.groups)
+                * module.kernel_size[0]
+            )
         elif isinstance(module, nn.Linear):
-            total_macs += output.numel() * module.in_features
+            operation_macs = output.numel() * module.in_features
+        else:
+            fixed_filter_macs = getattr(module, "fixed_filter_macs", None)
+            if callable(fixed_filter_macs):
+                operation_macs = fixed_filter_macs(_inputs[0])
+        component = component_by_module[id(module)]
+        macs[component] += operation_macs
+        if id(module) in input_adapter_modules:
+            macs["input_adapter"] += operation_macs
+        macs["total"] += operation_macs
 
     hooks = [
         module.register_forward_hook(hook)
         for module in model.modules()
-        if isinstance(module, (nn.Conv2d, nn.Linear))
+        if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Linear))
+        or callable(getattr(module, "fixed_filter_macs", None))
     ]
     try:
         with torch.inference_mode():
@@ -103,7 +241,27 @@ def estimate_macs(model: nn.Module, image_size: int, device: str) -> int:
     finally:
         for handle in hooks:
             handle.remove()
-    return total_macs
+    return macs
+
+
+def _parameter_counts_by_component(model: nn.Module) -> dict[str, int]:
+    counts = {"total": 0, "backbone": 0, "head": 0}
+    for name, parameter in model.named_parameters():
+        component = "head" if name.startswith("classifier.") else "backbone"
+        count = parameter.numel()
+        counts[component] += count
+        counts["total"] += count
+    return counts
+
+
+def _parameter_bytes_by_component(model: nn.Module) -> dict[str, int]:
+    sizes = {"total": 0, "backbone": 0, "head": 0}
+    for name, parameter in model.named_parameters():
+        component = "head" if name.startswith("classifier.") else "backbone"
+        size = parameter.numel() * parameter.element_size()
+        sizes[component] += size
+        sizes["total"] += size
+    return sizes
 
 
 def _benchmark_batch(
@@ -160,6 +318,77 @@ def _benchmark_batch(
             if device.startswith("cuda")
             else None
         ),
+    }
+
+
+def _benchmark_end_to_end(
+    model: nn.Module,
+    preprocessing_transform: Callable[[Image.Image], Image.Image],
+    image_size: int,
+    device: str,
+    warmup_iterations: int,
+    benchmark_iterations: int,
+    repetitions: int,
+) -> dict[str, Any]:
+    raw_image = Image.new("L", (image_size + 11, image_size - 7), 255)
+    ImageDraw.Draw(raw_image).rectangle(
+        (
+            raw_image.width // 3,
+            raw_image.height // 5,
+            raw_image.width * 2 // 3,
+            raw_image.height * 4 // 5,
+        ),
+        fill=0,
+    )
+
+    def infer_from_raw_image() -> None:
+        prepared = preprocessing_transform(raw_image)
+        pixels = torch.frombuffer(bytearray(prepared.tobytes()), dtype=torch.uint8)
+        tensor = (
+            pixels.reshape(1, 1, prepared.height, prepared.width)
+            .float()
+            .div(255)
+            .to(device)
+        )
+        model(tensor)
+
+    model.eval()
+    repeat_summaries = []
+    with torch.inference_mode():
+        for _ in range(repetitions):
+            for _ in range(warmup_iterations):
+                infer_from_raw_image()
+            if device.startswith("cuda"):
+                torch.cuda.synchronize()
+            timings = []
+            for _ in range(benchmark_iterations):
+                if device.startswith("cuda"):
+                    torch.cuda.synchronize()
+                started_at = time.perf_counter()
+                infer_from_raw_image()
+                if device.startswith("cuda"):
+                    torch.cuda.synchronize()
+                timings.append((time.perf_counter() - started_at) * 1000)
+            repeat_summaries.append(_timing_summary(timings, 1))
+    return {
+        "batch_size": 1,
+        "scope": "synthetic_raw_pil_to_logits",
+        "latency_mean_ms": statistics.median(
+            summary["latency_mean_ms"] for summary in repeat_summaries
+        ),
+        "latency_p50_ms": statistics.median(
+            summary["latency_p50_ms"] for summary in repeat_summaries
+        ),
+        "latency_p95_ms": statistics.median(
+            summary["latency_p95_ms"] for summary in repeat_summaries
+        ),
+        "latency_p99_ms": statistics.median(
+            summary["latency_p99_ms"] for summary in repeat_summaries
+        ),
+        "samples_per_second": statistics.median(
+            summary["samples_per_second"] for summary in repeat_summaries
+        ),
+        "repeat_summaries": repeat_summaries,
     }
 
 
