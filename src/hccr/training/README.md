@@ -11,9 +11,7 @@ This package orchestrates reproducible training and creates all run artifacts.
 | `diagnostics.py` | Parameters, MAC/FLOP estimate, repeated inference benchmarks, BatchNorm health/recalibration and activation/gradient diagnostics. |
 | `artifacts.py` | Checkpoint state, checkpoint metadata and manifest digest. |
 
-Use `input_polarity=white_on_black` (CLI: `--input-polarity white_on_black`)
-to run an inversion ablation without modifying the source dataset. The chosen
-polarity is stored in checkpoint metadata and `experiment_summary.csv`.
+Preprocessing is fixed to black-on-white grayscale after the ablation sweep.
 
 `scheduler` supports `none`, `cosine`, and `plateau`. Early stopping uses
 `early_stopping_patience` and `early_stopping_min_delta`; CLI value `0` disables
@@ -29,18 +27,11 @@ MACs so subset and full-class architectures remain directly comparable. It
 declares unsupported MAC operator types, projects the classifier to 7,186
 classes, and records synthetic raw-PIL-to-logits batch-1 latency in addition to
 model-only latency.
-For directional input modes it additionally records
-`estimated_input_adapter_macs`; these MACs remain included in backbone and
-total cost.
-Resolved `stage_depths`, attention placement, cross-stage kind, CSP stages, and
-CSP split ratio are stored in checkpoint schema 2 and the experiment summary
-for reproducible ablations. Cross-stage choices are `none`,
-`projected_residual`, and `c_cbam`; CSP is independently controlled by
-`csp_stages` and defaults
-off so legacy model construction and checkpoint keys remain unchanged.
+Resolved width and `stage_depths` are stored in checkpoint metadata and the
+experiment summary. Width and all three stage depths must be positive.
 
-`classification_head` supports `linear`, `cosface`, and `arcface`. Angular
-heads normalize embeddings and weights, use target-free scaled cosine logits
+`classification_head` supports `cosface` and `arcface`. Both angular heads
+normalize embeddings and weights, use target-free scaled cosine logits
 for validation/inference, and apply the configured target margin only during
 training. `margin_warmup_epochs` ramps the margin from zero to full strength;
 `label_smoothing` remains an independent cross-entropy ablation.
@@ -59,4 +50,3 @@ method to `spawn`. This prevents workers from inheriting CUDA/profiler state
 from the parent process. Persistent workers avoid repeated startup per epoch,
 while a configurable prefetch factor and timeout bound Docker shared-memory use
 and convert worker stalls into actionable errors.
-

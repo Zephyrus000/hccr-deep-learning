@@ -33,17 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
             command_parser.add_argument("--learning-rate", type=float, default=1e-3)
             command_parser.add_argument("--weight-decay", type=float, default=1e-4)
             command_parser.add_argument("--image-size", type=int, default=64)
-            command_parser.add_argument(
-                "--input-mode",
-                choices=("grayscale", "grayscale_sobel", "grayscale_gabor"),
-                default="grayscale",
-            )
-            command_parser.add_argument(
-                "--input-polarity",
-                choices=("black_on_white", "white_on_black"),
-                default="black_on_white",
-            )
-            command_parser.add_argument("--width", type=int, default=32)
+            command_parser.add_argument("--width", type=int, default=64)
             command_parser.add_argument("--dropout", type=float, default=0.1)
             command_parser.add_argument(
                 "--stage-depths",
@@ -53,26 +43,13 @@ def build_parser() -> argparse.ArgumentParser:
                 default=(1, 2, 2),
             )
             command_parser.add_argument(
-                "--attention", choices=("none", "se", "eca"), default="none"
-            )
-            command_parser.add_argument(
-                "--attention-stages", type=int, nargs="+", default=(3,)
-            )
-            command_parser.add_argument(
-                "--cross-stage",
-                choices=("none", "projected_residual", "c_cbam"),
-                default="none",
-            )
-            command_parser.add_argument("--csp-stages", type=int, nargs="*", default=())
-            command_parser.add_argument("--csp-split-ratio", type=float, default=0.5)
-            command_parser.add_argument(
                 "--classification-head",
-                choices=("linear", "cosface", "arcface"),
-                default="linear",
+                choices=("cosface", "arcface"),
+                default="cosface",
             )
             command_parser.add_argument("--label-smoothing", type=float, default=0.0)
             command_parser.add_argument("--logit-scale", type=float, default=32.0)
-            command_parser.add_argument("--angular-margin", type=float, default=0.2)
+            command_parser.add_argument("--angular-margin", type=float, default=0.1)
             command_parser.add_argument("--margin-warmup-epochs", type=int, default=3)
             command_parser.add_argument(
                 "--device", choices=("auto", "cpu", "cuda"), default="auto"
@@ -109,21 +86,6 @@ def build_parser() -> argparse.ArgumentParser:
             command_parser.add_argument("--overfit-check", action="store_true")
             command_parser.add_argument("--max-classes", type=int)
             command_parser.add_argument("--class-subset-seed", type=int, default=7)
-            command_parser.add_argument("--center-by-centroid", action="store_true")
-            command_parser.add_argument("--otsu-binarize", action="store_true")
-            command_parser.add_argument("--median-filter-size", type=int)
-            command_parser.add_argument(
-                "--elastic-probability", type=float, default=0.0
-            )
-            command_parser.add_argument(
-                "--elastic-displacement-ratio", type=float, default=0.015
-            )
-            command_parser.add_argument(
-                "--erosion-probability", type=float, default=0.0
-            )
-            command_parser.add_argument(
-                "--dilation-probability", type=float, default=0.0
-            )
             command_parser.add_argument(
                 "--benchmark-warmup-iterations", type=int, default=20
             )
@@ -160,16 +122,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 learning_rate=arguments.learning_rate,
                 weight_decay=arguments.weight_decay,
                 image_size=arguments.image_size,
-                input_mode=arguments.input_mode,
-                input_polarity=arguments.input_polarity,
                 width=arguments.width,
                 dropout=arguments.dropout,
                 stage_depths=tuple(arguments.stage_depths),
-                attention=arguments.attention,
-                attention_stages=tuple(arguments.attention_stages),
-                cross_stage=arguments.cross_stage,
-                csp_stages=tuple(arguments.csp_stages),
-                csp_split_ratio=arguments.csp_split_ratio,
                 classification_head=arguments.classification_head,
                 label_smoothing=arguments.label_smoothing,
                 logit_scale=arguments.logit_scale,
@@ -195,13 +150,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 overfit_check=arguments.overfit_check,
                 max_classes=arguments.max_classes,
                 class_subset_seed=arguments.class_subset_seed,
-                center_by_centroid=arguments.center_by_centroid,
-                otsu_binarize=arguments.otsu_binarize,
-                median_filter_size=arguments.median_filter_size,
-                elastic_probability=arguments.elastic_probability,
-                elastic_displacement_ratio=arguments.elastic_displacement_ratio,
-                erosion_probability=arguments.erosion_probability,
-                dilation_probability=arguments.dilation_probability,
                 benchmark_warmup_iterations=arguments.benchmark_warmup_iterations,
                 benchmark_iterations=arguments.benchmark_iterations,
                 benchmark_repetitions=arguments.benchmark_repetitions,

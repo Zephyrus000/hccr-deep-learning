@@ -349,18 +349,12 @@ def _model_from_run(
         "width",
         "stage_depths",
         "dropout",
-        "attention",
-        "attention_stages",
-        "cross_stage",
-        "csp_stages",
-        "csp_split_ratio",
         "classification_head",
         "logit_scale",
         "angular_margin",
-        "input_mode",
     }
     kwargs = {key: stored[key] for key in model_keys if key in stored}
-    for tuple_key in ("stage_depths", "attention_stages", "csp_stages"):
+    for tuple_key in ("stage_depths",):
         if tuple_key in kwargs:
             kwargs[tuple_key] = tuple(kwargs[tuple_key])
     target_classes = num_classes_override or int(stored["num_classes"])
@@ -436,6 +430,8 @@ def _aggregate_profile_latency(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for device in ("cpu", "cuda"):
         values = []
         full_values = []
+        optimized_values = []
+        optimized_full_values = []
         for row in rows:
             profile = row["profiles"].get(device, {})
             if profile.get("status") != "completed":
@@ -443,15 +439,25 @@ def _aggregate_profile_latency(rows: list[dict[str, Any]]) -> dict[str, Any]:
             values.append(
                 profile["trained_head"]["inference_benchmarks"][0]["latency_p95_ms"]
             )
+            optimized = profile["trained_head"].get("optimized_inference")
+            if optimized is not None:
+                optimized_values.append(optimized["benchmarks"][0]["latency_p95_ms"])
             if "full_class_head" in profile:
                 full_values.append(
                     profile["full_class_head"]["inference_benchmarks"][0][
                         "latency_p95_ms"
                     ]
                 )
+                optimized_full = profile["full_class_head"].get("optimized_inference")
+                if optimized_full is not None:
+                    optimized_full_values.append(
+                        optimized_full["benchmarks"][0]["latency_p95_ms"]
+                    )
         result[device] = {
             "trained_head": _distribution(values),
             "full_class_head": _distribution(full_values),
+            "optimized_trained_head": _distribution(optimized_values),
+            "optimized_full_class_head": _distribution(optimized_full_values),
         }
     return result
 
@@ -472,6 +478,7 @@ def _compare_variant_aggregates(
             baseline["metrics"]["tail_recall"],
         ),
         "latency_p95_ratio": {},
+        "optimized_latency_p95_ratio": {},
     }
     for device in ("cpu", "cuda"):
         baseline_latency = _mean(baseline["batch1_p95_ms"][device]["trained_head"])
@@ -479,6 +486,17 @@ def _compare_variant_aggregates(
         result["latency_p95_ratio"][device] = (
             candidate_latency / baseline_latency
             if baseline_latency and candidate_latency
+            else None
+        )
+        optimized_baseline = _mean(
+            baseline["batch1_p95_ms"][device]["optimized_trained_head"]
+        )
+        optimized_candidate = _mean(
+            candidate["batch1_p95_ms"][device]["optimized_trained_head"]
+        )
+        result["optimized_latency_p95_ratio"][device] = (
+            optimized_candidate / optimized_baseline
+            if optimized_baseline and optimized_candidate
             else None
         )
     return result

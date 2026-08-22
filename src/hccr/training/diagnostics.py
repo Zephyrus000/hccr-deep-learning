@@ -14,6 +14,7 @@ import torch
 from PIL import Image, ImageDraw
 from torch import nn
 
+from hccr.models import optimize_model_for_inference
 from hccr.utils.experiment import write_json
 
 
@@ -44,6 +45,60 @@ def profile_model(
     full_class_projection = project_classifier_cost(
         model, parameter_counts, parameter_bytes, macs, full_class_num_classes
     )
+    eager_benchmarks = [
+        _benchmark_batch(
+            model,
+            image_size,
+            device,
+            batch_size,
+            warmup_iterations,
+            benchmark_iterations,
+            benchmark_repetitions,
+        )
+        for batch_size in (1, 8, 32)
+    ]
+    eager_end_to_end = (
+        _benchmark_end_to_end(
+            model,
+            preprocessing_transform,
+            image_size,
+            device,
+            warmup_iterations,
+            benchmark_iterations,
+            benchmark_repetitions,
+        )
+        if preprocessing_transform is not None
+        else None
+    )
+    optimized_model = optimize_model_for_inference(model)
+    optimization_equivalence = _compare_inference_outputs(
+        model, optimized_model, image_size, device
+    )
+    optimized_benchmarks = [
+        _benchmark_batch(
+            optimized_model,
+            image_size,
+            device,
+            batch_size,
+            warmup_iterations,
+            benchmark_iterations,
+            benchmark_repetitions,
+        )
+        for batch_size in (1, 8, 32)
+    ]
+    optimized_end_to_end = (
+        _benchmark_end_to_end(
+            optimized_model,
+            preprocessing_transform,
+            image_size,
+            device,
+            warmup_iterations,
+            benchmark_iterations,
+            benchmark_repetitions,
+        )
+        if preprocessing_transform is not None
+        else None
+    )
     profile = {
         "device": device,
         "effective_input_channels": getattr(model, "effective_input_channels", 1),
@@ -68,34 +123,48 @@ def profile_model(
             "aggregation": "median_of_repetition_summaries",
         },
         "device_metadata": _device_metadata(device),
-        "inference_benchmarks": [
-            _benchmark_batch(
-                model,
-                image_size,
-                device,
-                batch_size,
-                warmup_iterations,
-                benchmark_iterations,
-                benchmark_repetitions,
-            )
-            for batch_size in (1, 8, 32)
-        ],
-        "end_to_end_batch1_benchmark": (
-            _benchmark_end_to_end(
-                model,
-                preprocessing_transform,
-                image_size,
-                device,
-                warmup_iterations,
-                benchmark_iterations,
-                benchmark_repetitions,
-            )
-            if preprocessing_transform is not None
-            else None
-        ),
+        "inference_benchmarks": eager_benchmarks,
+        "optimized_inference": {
+            "transforms": [
+                "cache_normalized_classifier_weight",
+                "fold_conv_batch_norm",
+                "remove_eval_dropout_hop",
+                "sequential_feature_fast_path",
+            ],
+            "equivalence": optimization_equivalence,
+            "benchmarks": optimized_benchmarks,
+            "end_to_end_batch1_benchmark": optimized_end_to_end,
+        },
+        "end_to_end_batch1_benchmark": eager_end_to_end,
     }
     write_json(output_dir / "resource_profile.json", profile)
     return profile
+
+
+def _compare_inference_outputs(
+    model: nn.Module,
+    optimized_model: nn.Module,
+    image_size: int,
+    device: str,
+) -> dict[str, Any]:
+    sample = torch.linspace(
+        0,
+        1,
+        steps=image_size * image_size,
+        device=device,
+    ).reshape(1, 1, image_size, image_size)
+    model.eval()
+    optimized_model.eval()
+    with torch.inference_mode():
+        expected = model(sample)
+        actual = optimized_model(sample)
+    maximum_error = float(torch.max(torch.abs(expected - actual)).item())
+    return {
+        "maximum_absolute_logit_error": maximum_error,
+        "allclose_rtol": 1e-4,
+        "allclose_atol": 1e-5,
+        "passed": bool(torch.allclose(expected, actual, rtol=1e-4, atol=1e-5)),
+    }
 
 
 def project_classifier_cost(

@@ -16,7 +16,7 @@ and inference-latency objective.
 | `build_model(name, **kwargs)` | Factory; currently accepts `efficient_hccr`. |
 
 Inputs are `[batch, 1, image_size, image_size]`; outputs are class logits.
-`input_mode` accepts `grayscale`, `grayscale_sobel`, and `grayscale_gabor`.
+The retained model always consumes one grayscale channel.
 Directional modes always retain raw grayscale as channel 0 and compute fixed
 features inside the model so training, validation, and inference share exactly
 the same implementation.
@@ -29,8 +29,8 @@ architecture variants using accuracy plus batch-1 p95 latency from
 checkpoint keys. Training accepts exactly three positive depths through
 `--stage-depths`, for example `--stage-depths 1 2 3`.
 
-Stage-end channel attention is available as an explicit ablation through
-`--attention eca|se` and `--attention-stages`. It is disabled by default, and
+Width is a positive integer, and `stage_depths` accepts any three positive
+integers. Classifier choices are CosFace and ArcFace.
 candidate promotion still depends on matched GPU/CPU latency and validation
 accuracy rather than parameter count alone.
 
@@ -50,3 +50,10 @@ Resource profiles report total, backbone, and classifier-head parameters and
 MACs separately. Use backbone values when comparing architectures across
 different class counts because the 7,186-class head is much larger than a
 1,000-class subset head.
+
+For deployment, call `optimize_model_for_inference(model)` after loading the
+checkpoint and moving it to the target device. It returns an eval-only copy
+that caches the normalized CosFace/ArcFace class weights, folds Conv-BatchNorm
+pairs, removes the eval-time dropout hop, and uses the sequential feature fast
+path. These transformations do not require retraining and resource profiles
+record both eager and optimized benchmarks plus a logit-equivalence check.

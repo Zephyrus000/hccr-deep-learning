@@ -5,22 +5,21 @@ then converts it to a normalized `torch.Tensor` of shape `[1, H, W]`.
 
 | File | API | Behavior |
 | --- | --- | --- |
-| `pipeline.py` | `EvalPreprocessor` | Deterministic grayscale, optional filtering/binarization, crop, resize, padding, centroid centering and output polarity. |
-| `pipeline.py` | `TrainPreprocessor` | Eval normalization followed by random affine, optional blur, elastic deformation, and mutually exclusive black-foreground erosion/dilation. |
+| `pipeline.py` | `EvalPreprocessor` | Deterministic grayscale crop, resize, and padding. |
+| `pipeline.py` | `TrainPreprocessor` | Eval normalization followed by the retained random affine and blur augmentation. |
 | `gallery.py` | `save_gallery` | Writes raw-versus-transformed contact sheets for visual QA. |
 
 Validation and inference must use `EvalPreprocessor`; random augmentation is
-train-only. Otsu binarization, median filtering and centroid centering are
+train-only. The preprocessing path is deliberately fixed after ablation.
 ablation options, not unconditional defaults, because they can damage fine
 strokes in clean CASIA images.
 
-Elastic and morphology probabilities default to zero so the existing random
+Random affine and blur preserve the baseline augmentation used by the retained
 affine pipeline remains the control. Enabled runs save
 `augmentation_gallery.png`; each epoch records actual application counts and
 rates returned by DataLoader workers.
 
-`input_polarity` accepts `black_on_white` (default) and `white_on_black`.
-Normalization and morphology run in the canonical black-on-white representation,
+Images use the canonical black-on-white representation,
 then the final image is inverted when requested. Erosion and dilation therefore
 keep the same meaning for both output polarities.
 

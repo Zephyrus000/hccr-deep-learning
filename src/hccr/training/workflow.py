@@ -20,7 +20,7 @@ from hccr.evaluation.evaluator import evaluate
 from hccr.evaluation.reports import save_learning_curves
 from hccr.models import build_model
 from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
-from hccr.preprocessing.gallery import save_channel_gallery, save_gallery
+from hccr.preprocessing.gallery import save_gallery
 from hccr.training.artifacts import (
     file_digest,
     save_checkpoint,
@@ -51,20 +51,13 @@ class TrainingConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
     image_size: int = 64
-    input_mode: str = "grayscale"
-    input_polarity: str = "black_on_white"
-    width: int = 32
+    width: int = 64
     dropout: float = 0.1
     stage_depths: tuple[int, int, int] = (1, 2, 2)
-    attention: str = "none"
-    attention_stages: tuple[int, ...] = (3,)
-    cross_stage: str = "none"
-    csp_stages: tuple[int, ...] = ()
-    csp_split_ratio: float = 0.5
-    classification_head: str = "linear"
+    classification_head: str = "cosface"
     label_smoothing: float = 0.0
     logit_scale: float = 32.0
-    angular_margin: float = 0.2
+    angular_margin: float = 0.1
     margin_warmup_epochs: int = 3
     device: str = "auto"
     seed: int = 7
@@ -77,13 +70,6 @@ class TrainingConfig:
     overfit_check: bool = False
     max_classes: int | None = None
     class_subset_seed: int = 7
-    center_by_centroid: bool = False
-    otsu_binarize: bool = False
-    median_filter_size: int | None = None
-    elastic_probability: float = 0.0
-    elastic_displacement_ratio: float = 0.015
-    erosion_probability: float = 0.0
-    dilation_probability: float = 0.0
     scheduler: str = "cosine"
     scheduler_min_lr: float = 1e-6
     scheduler_patience: int = 3
@@ -124,21 +110,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         else None
     )
     active_num_classes = config.max_classes or config.num_classes
-    preprocess_options = {
-        "input_polarity": config.input_polarity,
-        "center_by_centroid": config.center_by_centroid,
-        "otsu_binarize": config.otsu_binarize,
-        "median_filter_size": config.median_filter_size,
-    }
-    augmentation_options = {
-        "elastic_probability": config.elastic_probability,
-        "elastic_displacement_ratio": config.elastic_displacement_ratio,
-        "erosion_probability": config.erosion_probability,
-        "dilation_probability": config.dilation_probability,
-    }
-    train_transform = TrainPreprocessor(
-        config.image_size, **preprocess_options, **augmentation_options
-    )
+    train_transform = TrainPreprocessor(config.image_size)
     train_set = HCCRDataset(
         config.manifest_path,
         "train",
@@ -149,7 +121,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     valid_set = HCCRDataset(
         config.manifest_path,
         "validation",
-        EvalPreprocessor(config.image_size, **preprocess_options),
+        EvalPreprocessor(config.image_size),
         class_id_map,
     )
     data_root = train_set.root
@@ -164,7 +136,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     }
     _save_preprocessing_gallery(
         train_set,
-        EvalPreprocessor(config.image_size, **preprocess_options),
+        EvalPreprocessor(config.image_size),
         output_dir,
         "preprocessing_gallery.png",
     )
@@ -188,7 +160,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             HCCRDataset(
                 config.manifest_path,
                 "train",
-                EvalPreprocessor(config.image_size, **preprocess_options),
+                EvalPreprocessor(config.image_size),
                 class_id_map,
             ),
             range(len(train_set)),
@@ -222,7 +194,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         calibration_set = HCCRDataset(
             config.manifest_path,
             "train",
-            EvalPreprocessor(config.image_size, **preprocess_options),
+            EvalPreprocessor(config.image_size),
             class_id_map,
         )
         if config.max_train_samples is not None:
@@ -249,24 +221,10 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         width=config.width,
         dropout=config.dropout,
         stage_depths=config.stage_depths,
-        attention=config.attention,
-        attention_stages=config.attention_stages,
-        cross_stage=config.cross_stage,
-        csp_stages=config.csp_stages,
-        csp_split_ratio=config.csp_split_ratio,
         classification_head=config.classification_head,
         logit_scale=config.logit_scale,
         angular_margin=config.angular_margin,
-        input_mode=config.input_mode,
     ).to(device)
-    if config.input_mode != "grayscale":
-        _save_directional_input_gallery(
-            train_set,
-            EvalPreprocessor(config.image_size, **preprocess_options),
-            model.input_adapter,
-            config.input_mode,
-            output_dir,
-        )
     resource_profile = profile_model(
         model,
         config.image_size,
@@ -275,7 +233,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         config.benchmark_warmup_iterations,
         config.benchmark_iterations,
         config.benchmark_repetitions,
-        EvalPreprocessor(config.image_size, **preprocess_options),
+        EvalPreprocessor(config.image_size),
     )
     logger.info("resource profile=%s", resource_profile)
     optimizer = torch.optim.AdamW(
@@ -345,24 +303,10 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                     "model": {
                         "name": "efficient_hccr",
                         "in_channels": 1,
-                        "input_mode": config.input_mode,
                         "effective_input_channels": model.effective_input_channels,
                         "width": config.width,
                         "stage_depths": list(config.stage_depths),
                         "dropout": config.dropout,
-                        "attention": config.attention,
-                        "attention_stages": list(config.attention_stages),
-                        "cross_stage": config.cross_stage,
-                        "cross_stage_route": (
-                            "stage2->stage3" if config.cross_stage != "none" else None
-                        ),
-                        "c_cbam_implementation": (
-                            "paper-inspired parallel CAM/SAM adaptation"
-                            if config.cross_stage == "c_cbam"
-                            else None
-                        ),
-                        "csp_stages": list(config.csp_stages),
-                        "csp_split_ratio": config.csp_split_ratio,
                         "classification_head": config.classification_head,
                         "logit_scale": config.logit_scale,
                         "angular_margin": config.angular_margin,
@@ -372,12 +316,11 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                         "loss": "cross_entropy",
                         "label_smoothing": config.label_smoothing,
                         "margin_warmup_epochs": config.margin_warmup_epochs,
-                        "augmentation": augmentation_options,
+                        "augmentation": "random_affine_and_blur",
                     },
                     "preprocess": {
                         "image_size": config.image_size,
                         "margin": 4,
-                        **preprocess_options,
                     },
                     "manifest_digest": file_digest(config.manifest_path),
                     "labels_digest": file_digest(output_dir / "labels.json"),
@@ -527,24 +470,12 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("validation_drop_threshold must be non-negative")
     if len(config.stage_depths) != 3 or any(depth < 1 for depth in config.stage_depths):
         raise ValueError("stage_depths must contain three positive values")
+    if config.width < 1:
+        raise ValueError("width must be positive")
     if not 0 <= config.dropout < 1:
         raise ValueError("dropout must be in [0, 1)")
-    if config.attention not in {"none", "se", "eca"}:
-        raise ValueError("attention must be one of: none, se, eca")
-    if len(set(config.attention_stages)) != len(config.attention_stages) or any(
-        stage not in {1, 2, 3} for stage in config.attention_stages
-    ):
-        raise ValueError("attention_stages must contain unique values from 1 to 3")
-    if config.cross_stage not in {"none", "projected_residual", "c_cbam"}:
-        raise ValueError("cross_stage must be one of: none, projected_residual, c_cbam")
-    if len(set(config.csp_stages)) != len(config.csp_stages) or any(
-        stage not in {2, 3} for stage in config.csp_stages
-    ):
-        raise ValueError("csp_stages must contain unique values from 2 to 3")
-    if not 0.0 < config.csp_split_ratio < 1.0:
-        raise ValueError("csp_split_ratio must be between 0 and 1")
-    if config.classification_head not in {"linear", "cosface", "arcface"}:
-        raise ValueError("classification_head must be one of: linear, cosface, arcface")
+    if config.classification_head not in {"cosface", "arcface"}:
+        raise ValueError("classification_head must be one of: cosface, arcface")
     if not 0 <= config.label_smoothing < 1:
         raise ValueError("label_smoothing must be in [0, 1)")
     if config.logit_scale <= 0:
@@ -553,29 +484,6 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("angular_margin must be in [0, pi/2)")
     if config.margin_warmup_epochs < 0:
         raise ValueError("margin_warmup_epochs must be non-negative")
-    if config.input_mode not in {
-        "grayscale",
-        "grayscale_sobel",
-        "grayscale_gabor",
-    }:
-        raise ValueError(
-            "input_mode must be one of: grayscale, grayscale_sobel, grayscale_gabor"
-        )
-    if config.input_polarity not in {"black_on_white", "white_on_black"}:
-        raise ValueError(
-            "input_polarity must be one of: black_on_white, white_on_black"
-        )
-    probabilities = (
-        config.elastic_probability,
-        config.erosion_probability,
-        config.dilation_probability,
-    )
-    if any(not 0 <= probability <= 1 for probability in probabilities):
-        raise ValueError("augmentation probabilities must be between 0 and 1")
-    if config.erosion_probability + config.dilation_probability > 1:
-        raise ValueError("erosion and dilation probabilities must sum to at most 1")
-    if not 0 <= config.elastic_displacement_ratio <= 0.015:
-        raise ValueError("elastic_displacement_ratio must be in [0, 0.015]")
 
 
 def _initialize_data_worker(_worker_id: int) -> None:
@@ -661,39 +569,6 @@ def _unicode_codepoint(label: str) -> str:
     return " ".join(f"U+{ord(character):04X}" for character in label)
 
 
-def _save_directional_input_gallery(
-    dataset: HCCRDataset,
-    transform: EvalPreprocessor,
-    input_adapter,
-    input_mode: str,
-    output_dir: Path,
-) -> None:
-    rows_by_label: dict[str, dict[str, str]] = {}
-    for row in dataset.rows:
-        rows_by_label.setdefault(row["unicode_label"], row)
-        if len(rows_by_label) == 8:
-            break
-    images, labels = [], []
-    for label, row in rows_by_label.items():
-        with Image.open(dataset.root / row["source_file"]) as image:
-            images.append(image.convert("L"))
-            labels.append(_unicode_codepoint(label))
-    channel_names = (
-        ("grayscale", "sobel magnitude")
-        if input_mode == "grayscale_sobel"
-        else ("grayscale", "gabor 0°", "gabor 45°", "gabor 90°", "gabor 135°")
-    )
-    if images:
-        save_channel_gallery(
-            images,
-            transform,
-            input_adapter,
-            channel_names,
-            output_dir / "directional_input_gallery.png",
-            labels,
-        )
-
-
 def _write_label_mapping(
     output_dir: Path, manifest_path: Path, class_id_map: dict[int, int] | None
 ) -> None:
@@ -736,26 +611,15 @@ def _append_experiment_summary(
     fields = [
         "run_id",
         "model",
-        "input_mode",
-        "input_polarity",
         "effective_input_channels",
         "width",
         "dropout",
         "stage_depths",
-        "attention",
-        "attention_stages",
-        "cross_stage",
-        "csp_stages",
-        "csp_split_ratio",
         "classification_head",
         "label_smoothing",
         "logit_scale",
         "angular_margin",
         "margin_warmup_epochs",
-        "elastic_probability",
-        "elastic_displacement_ratio",
-        "erosion_probability",
-        "dilation_probability",
         "epochs",
         "image_size",
         "top1",
@@ -771,7 +635,6 @@ def _append_experiment_summary(
         "estimated_macs",
         "estimated_backbone_macs",
         "estimated_head_macs",
-        "estimated_input_adapter_macs",
         "mac_coverage_complete",
         "unsupported_operator_types",
         "full_class_num_classes",
@@ -811,28 +674,17 @@ def _append_experiment_summary(
             {
                 "run_id": run_id,
                 "model": "efficient_hccr",
-                "input_mode": config.input_mode,
-                "input_polarity": config.input_polarity,
                 "effective_input_channels": resource_profile[
                     "effective_input_channels"
                 ],
                 "width": config.width,
                 "dropout": config.dropout,
                 "stage_depths": ",".join(map(str, config.stage_depths)),
-                "attention": config.attention,
-                "attention_stages": ",".join(map(str, config.attention_stages)),
-                "cross_stage": config.cross_stage,
-                "csp_stages": ",".join(map(str, config.csp_stages)),
-                "csp_split_ratio": config.csp_split_ratio,
                 "classification_head": config.classification_head,
                 "label_smoothing": config.label_smoothing,
                 "logit_scale": config.logit_scale,
                 "angular_margin": config.angular_margin,
                 "margin_warmup_epochs": config.margin_warmup_epochs,
-                "elastic_probability": config.elastic_probability,
-                "elastic_displacement_ratio": config.elastic_displacement_ratio,
-                "erosion_probability": config.erosion_probability,
-                "dilation_probability": config.dilation_probability,
                 "epochs": config.epochs,
                 "image_size": config.image_size,
                 "top1": metrics["top1"],
@@ -850,9 +702,6 @@ def _append_experiment_summary(
                 "estimated_macs": resource_profile["estimated_macs"],
                 "estimated_backbone_macs": resource_profile["estimated_backbone_macs"],
                 "estimated_head_macs": resource_profile["estimated_head_macs"],
-                "estimated_input_adapter_macs": resource_profile[
-                    "estimated_input_adapter_macs"
-                ],
                 "mac_coverage_complete": mac_coverage["complete"],
                 "unsupported_operator_types": json.dumps(
                     mac_coverage["unsupported_operator_types"]

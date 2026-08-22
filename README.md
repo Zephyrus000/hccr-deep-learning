@@ -94,6 +94,26 @@ python scripts/run_experiments.py `
   --dry-run
 ```
 
+Benchmark the exact deploy form in FP32 and FP16 after training:
+
+```powershell
+python scripts/benchmark_inference.py `
+  --checkpoint experiments/<run-id>/checkpoint.pt `
+  --num-classes 1000 `
+  --image-size 96 `
+  --width 80 `
+  --stage-depths 2 3 3 `
+  --device cuda `
+  --precisions float32 float16 `
+  --cuda-graph
+```
+
+The deploy benchmark caches normalized angular-classifier weights, folds
+Conv-BatchNorm pairs and removes inference-only module hops. FP16 is a separate
+CUDA deployment representation; the source checkpoint remains FP32. On CPU,
+benchmark `--cpu-threads 1`, `2`, `4`, and `8` independently—using all host
+cores for a batch-1 request often increases latency and jitter.
+
 Run one configuration for three seeds using arbitrary train CLI arguments:
 
 ```powershell
