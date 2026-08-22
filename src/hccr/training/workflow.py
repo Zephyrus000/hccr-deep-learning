@@ -69,6 +69,10 @@ class TrainingConfig:
     device: str = "auto"
     seed: int = 7
     num_workers: int = 0
+    dataloader_start_method: str = "auto"
+    prefetch_factor: int = 1
+    persistent_workers: bool = True
+    worker_timeout_seconds: float = 120.0
     max_train_samples: int | None = None
     overfit_check: bool = False
     max_classes: int | None = None
@@ -190,19 +194,28 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             range(len(train_set)),
         )
     generator = torch.Generator().manual_seed(config.seed)
+    loader_options = _data_loader_options(config, device)
+    logger.info(
+        "data loader workers=%s start_method=%s persistent=%s prefetch=%s "
+        "timeout_seconds=%s pin_memory=%s",
+        config.num_workers,
+        loader_options.get("multiprocessing_context", "platform_default"),
+        loader_options.get("persistent_workers", False),
+        loader_options.get("prefetch_factor"),
+        loader_options.get("timeout", 0),
+        loader_options["pin_memory"],
+    )
     train_loader = DataLoader(
         train_set,
         batch_size=config.batch_size,
         shuffle=True,
-        num_workers=config.num_workers,
-        pin_memory=device == "cuda",
         generator=generator,
+        **loader_options,
     )
     valid_loader = DataLoader(
         valid_set,
         batch_size=config.batch_size,
-        num_workers=config.num_workers,
-        pin_memory=device == "cuda",
+        **loader_options,
     )
     calibration_loader = None
     if config.bn_recalibration_batches:
@@ -228,8 +241,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         calibration_loader = DataLoader(
             calibration_set,
             batch_size=config.batch_size,
-            num_workers=config.num_workers,
-            pin_memory=device == "cuda",
+            **loader_options,
         )
     model = build_model(
         "efficient_hccr",
@@ -503,6 +515,14 @@ def _validate_training_config(config: TrainingConfig) -> None:
         )
     if config.bn_recalibration_batches < 0:
         raise ValueError("bn_recalibration_batches must be non-negative")
+    if config.num_workers < 0:
+        raise ValueError("num_workers must be non-negative")
+    if config.dataloader_start_method not in {"auto", "spawn"}:
+        raise ValueError("dataloader_start_method must be one of: auto, spawn")
+    if config.prefetch_factor < 1:
+        raise ValueError("prefetch_factor must be positive")
+    if config.worker_timeout_seconds < 0:
+        raise ValueError("worker_timeout_seconds must be non-negative")
     if config.validation_drop_threshold < 0:
         raise ValueError("validation_drop_threshold must be non-negative")
     if len(config.stage_depths) != 3 or any(depth < 1 for depth in config.stage_depths):
@@ -556,6 +576,34 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("erosion and dilation probabilities must sum to at most 1")
     if not 0 <= config.elastic_displacement_ratio <= 0.015:
         raise ValueError("elastic_displacement_ratio must be in [0, 0.015]")
+
+
+def _initialize_data_worker(_worker_id: int) -> None:
+    """Prevent each loader process from creating a full CPU thread pool."""
+    torch.set_num_threads(1)
+
+
+def _data_loader_options(config: TrainingConfig, device: str) -> dict:
+    options = {
+        "num_workers": config.num_workers,
+        "pin_memory": device.startswith("cuda"),
+    }
+    if config.num_workers == 0:
+        return options
+    start_method = config.dataloader_start_method
+    if start_method == "auto" and device.startswith("cuda"):
+        start_method = "spawn"
+    options.update(
+        {
+            "persistent_workers": config.persistent_workers,
+            "prefetch_factor": config.prefetch_factor,
+            "timeout": config.worker_timeout_seconds,
+            "worker_init_fn": _initialize_data_worker,
+        }
+    )
+    if start_method != "auto":
+        options["multiprocessing_context"] = start_method
+    return options
 
 
 def _margin_multiplier(epoch: int, warmup_epochs: int, head: str) -> float:

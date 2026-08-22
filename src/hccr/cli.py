@@ -80,6 +80,21 @@ def build_parser() -> argparse.ArgumentParser:
             command_parser.add_argument("--seed", type=int, default=7)
             command_parser.add_argument("--num-workers", type=int, default=0)
             command_parser.add_argument(
+                "--dataloader-start-method",
+                choices=("auto", "spawn"),
+                default="auto",
+                help="Use spawn automatically for CUDA workers to avoid poison fork.",
+            )
+            command_parser.add_argument("--prefetch-factor", type=int, default=1)
+            command_parser.add_argument(
+                "--persistent-workers",
+                action=argparse.BooleanOptionalAction,
+                default=True,
+            )
+            command_parser.add_argument(
+                "--worker-timeout-seconds", type=float, default=120.0
+            )
+            command_parser.add_argument(
                 "--scheduler", choices=("none", "cosine", "plateau"), default="cosine"
             )
             command_parser.add_argument("--scheduler-min-lr", type=float, default=1e-6)
@@ -163,6 +178,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 device=arguments.device,
                 seed=arguments.seed,
                 num_workers=arguments.num_workers,
+                dataloader_start_method=arguments.dataloader_start_method,
+                prefetch_factor=arguments.prefetch_factor,
+                persistent_workers=arguments.persistent_workers,
+                worker_timeout_seconds=arguments.worker_timeout_seconds,
                 scheduler=arguments.scheduler,
                 scheduler_min_lr=arguments.scheduler_min_lr,
                 scheduler_patience=arguments.scheduler_patience,

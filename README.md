@@ -132,6 +132,8 @@ effective values are always captured in a run's `config.json`.
 | Option | Purpose |
 | --- | --- |
 | `--batch-size`, `--num-workers` | DataLoader throughput and memory use. |
+| `--dataloader-start-method`, `--prefetch-factor` | CUDA-safe worker creation and Docker shared-memory pressure. `auto` selects `spawn` on CUDA. |
+| `--persistent-workers`, `--worker-timeout-seconds` | Reuse workers between epochs and turn a stalled worker into a visible timeout. |
 | `--learning-rate`, `--weight-decay` | AdamW optimization. |
 | `--scheduler` | `none`, `cosine`, or validation-top-1 `plateau`. |
 | `--early-stopping-patience` | Stop after this many non-improving validation epochs; `0` disables it. |

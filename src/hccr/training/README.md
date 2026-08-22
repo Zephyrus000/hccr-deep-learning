@@ -53,3 +53,10 @@ preserved, while `checkpoint_recalibrated.pt`, its metadata,
 `bn_recalibration.json`, and full reports under `bn_recalibrated/` capture the
 deployable recalibrated variant. The option is disabled by default because it
 adds one additional complete validation pass per run.
+
+When multiprocessing is enabled, CUDA training resolves the DataLoader start
+method to `spawn`. This prevents workers from inheriting CUDA/profiler state
+from the parent process. Persistent workers avoid repeated startup per epoch,
+while a configurable prefetch factor and timeout bound Docker shared-memory use
+and convert worker stalls into actionable errors.
+
