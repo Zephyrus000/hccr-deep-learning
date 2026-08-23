@@ -1,22 +1,60 @@
 # `hccr.data`
 
-This package owns dataset contracts. It converts folder-labeled images into a
-frozen manifest, validates that manifest, and presents it to PyTorch.
+`hccr.data` owns the boundary between source images and model-ready samples. It
+defines the CSV manifest contract, audits dataset invariants, supports
+deterministic class/writer selection, and exposes the PyTorch dataset used by
+training.
 
-| File | Responsibility |
+## Public API
+
+| Symbol | Purpose |
 | --- | --- |
-| `folder_adapter.py` | Iterates deterministic `<unicode-label>/<image>` folders as `FolderSample`. |
-| `manifest.py` | Reads CSV manifests and validates IDs, splits, labels and writer overlap. |
-| `splitter.py` | Selects validation writers without writer-image leakage when writer IDs exist. |
-| `dataset.py` | `HCCRDataset` loads an image, applies a transform and returns `(tensor, target, row)`. |
-| `dataset.py` | `select_class_subset` samples fixed original class IDs and remaps them to compact model indices. |
+| `read_manifest` | Read a UTF-8 CSV manifest and verify its required columns. |
+| `audit_manifest` / `ManifestAudit` | Validate unique samples/files, splits, class-label consistency, and writer overlap. |
+| `HCCRDataset` | Load one manifest split and return normalized grayscale tensors. |
+| `select_class_subset` | Select original class IDs deterministically and remap them to a compact range. |
+| `iter_folder_samples` / `FolderSample` | Enumerate sorted `<unicode-label>/<image>` exports with stable sample IDs. |
+| `WriterDisjointSplitter` | Select complete writer groups for validation without image-level leakage. |
 
 ## Manifest contract
 
-Required columns are `sample_id`, `source_file`, `writer_id`, `unicode_label`,
-`class_id`, and `split`. `source_file` is relative to the data root inferred
-from the manifest location. Valid splits are `train`, `validation`, and `test`.
+The required columns are:
 
-For low-class architecture benchmarks, use the same `max_classes` and
-`class_subset_seed` for every candidate. The workflow writes that mapping as
-`class_subset.json`.
+| Column | Meaning |
+| --- | --- |
+| `sample_id` | Non-empty identifier unique across the manifest. |
+| `source_file` | Image path relative to the discovered data root. |
+| `writer_id` | Writer identity when known; an empty value is allowed. |
+| `unicode_label` | Character label associated with the class ID. |
+| `class_id` | Original integer class identifier. |
+| `split` | `train`, `validation`, or `test`. |
+
+`HCCRDataset` filters rows by split and resolves `source_file` under `data/`,
+`data/raw/`, or the corresponding manifest-relative fallback. A missing first
+sample produces a clear `FileNotFoundError` instead of silently changing roots.
+
+## Dataset output
+
+```python
+from pathlib import Path
+
+from hccr.data import HCCRDataset
+from hccr.preprocessing import EvalPreprocessor
+
+dataset = HCCRDataset(
+    Path("data/processed/casia_hwdb/manifest.csv"),
+    split="validation",
+    transform=EvalPreprocessor(image_size=64),
+)
+image, target, metadata = dataset[0]
+```
+
+The returned tuple is:
+
+- `image`: float tensor `[1, H, W]` scaled to `[0, 1]`.
+- `target`: original class ID, or its compact subset index.
+- `metadata`: a copy of the manifest row plus `applied_augmentations`.
+
+For comparable subset experiments, keep `max_classes` and the subset seed
+identical across every candidate. Persist the returned mapping with the run so
+model output indices can always be mapped back to original classes.

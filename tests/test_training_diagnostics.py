@@ -127,7 +127,7 @@ class ModelCostBreakdownTests(unittest.TestCase):
                 benchmark_repetitions=1,
             )
         self.assertEqual(profile["backbone_parameter_count"], 177_344)
-        self.assertEqual(profile["head_parameter_count"], 257_000)
+        self.assertEqual(profile["head_parameter_count"], 256_000)
         self.assertEqual(
             profile["parameter_count"],
             profile["backbone_parameter_count"] + profile["head_parameter_count"],
@@ -152,7 +152,7 @@ class ModelCostBreakdownTests(unittest.TestCase):
         )
         self.assertEqual(subset_backbone, full_backbone)
         self.assertEqual(
-            sum(parameter.numel() for parameter in full.parameters()), 2_024_146
+            sum(parameter.numel() for parameter in full.parameters()), 2_016_960
         )
 
     def test_profile_declares_coverage_end_to_end_and_full_head_projection(
@@ -177,7 +177,7 @@ class ModelCostBreakdownTests(unittest.TestCase):
         self.assertEqual(profile["full_class_projection"]["status"], "available")
         self.assertEqual(profile["full_class_projection"]["num_classes"], 100)
         self.assertEqual(
-            profile["full_class_projection"]["head_parameter_count"], 3_300
+            profile["full_class_projection"]["head_parameter_count"], 3_200
         )
         self.assertEqual(
             profile["end_to_end_batch1_benchmark"]["scope"],
@@ -185,49 +185,10 @@ class ModelCostBreakdownTests(unittest.TestCase):
         )
 
 
-class AttentionCostTests(unittest.TestCase):
-    def test_eca_conv1d_is_included_in_backbone_macs(self) -> None:
-        with tempfile.TemporaryDirectory() as baseline_directory:
-            baseline = profile_model(
-                EfficientHCCRNet(num_classes=1000, width=64),
-                16,
-                "cpu",
-                Path(baseline_directory),
-                1,
-                1,
-                1,
-            )
-        with tempfile.TemporaryDirectory() as eca_directory:
-            eca = profile_model(
-                EfficientHCCRNet(num_classes=1000, width=64, attention="eca"),
-                16,
-                "cpu",
-                Path(eca_directory),
-                1,
-                1,
-                1,
-            )
-        self.assertEqual(eca["backbone_parameter_count"], 177_347)
-        self.assertEqual(
-            eca["estimated_backbone_macs"] - baseline["estimated_backbone_macs"],
-            768,
-        )
-
-
-class DirectionalInputCostTests(unittest.TestCase):
-    def test_fixed_filter_macs_are_included_in_backbone_total(self) -> None:
+class RetainedInputCostTests(unittest.TestCase):
+    def test_grayscale_model_has_no_input_adapter_macs(self) -> None:
         image_size = 32
-        sobel = EfficientHCCRNet(num_classes=11, width=8, input_mode="grayscale_sobel")
-        gabor = EfficientHCCRNet(num_classes=11, width=8, input_mode="grayscale_gabor")
-        sobel_macs = estimate_macs_by_component(sobel, image_size, "cpu")
-        gabor_macs = estimate_macs_by_component(gabor, image_size, "cpu")
-        self.assertEqual(
-            sobel_macs["input_adapter"], image_size * image_size * 2 * 3 * 3
-        )
-        self.assertEqual(
-            gabor_macs["input_adapter"], image_size * image_size * 4 * 7 * 7
-        )
-        self.assertEqual(
-            sobel_macs["total"], sobel_macs["backbone"] + sobel_macs["head"]
-        )
-        self.assertGreater(gabor_macs["total"], sobel_macs["total"])
+        model = EfficientHCCRNet(num_classes=11, width=8)
+        macs = estimate_macs_by_component(model, image_size, "cpu")
+        self.assertEqual(macs["input_adapter"], 0)
+        self.assertEqual(macs["total"], macs["backbone"] + macs["head"])

@@ -20,15 +20,42 @@ class ConvNormAct(nn.Sequential):
 
 
 class DepthwiseSeparableBlock(nn.Module):
-    def __init__(self, channels: int, out_channels: int, stride: int) -> None:
+    def __init__(
+        self,
+        channels: int,
+        out_channels: int,
+        stride: int,
+        reparameterize_depthwise: bool = False,
+    ) -> None:
         super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(channels, channels, 3, stride, 1, groups=channels, bias=False),
-            nn.BatchNorm2d(channels),
-            nn.SiLU(inplace=True),
-            nn.Conv2d(channels, out_channels, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
-        )
+        self.reparameterize_depthwise = reparameterize_depthwise
+        if reparameterize_depthwise:
+            self.depthwise_branches = nn.ModuleList(
+                [
+                    self._depthwise_branch(channels, (3, 3), stride, (1, 1)),
+                    self._depthwise_branch(channels, (1, 3), stride, (0, 1)),
+                    self._depthwise_branch(channels, (3, 1), stride, (1, 0)),
+                ]
+            )
+            self.depthwise_activation = nn.SiLU(inplace=True)
+            self.pointwise = nn.Sequential(
+                nn.Conv2d(channels, out_channels, 1, bias=False),
+                nn.BatchNorm2d(out_channels),
+            )
+            self.block = nn.Identity()
+        else:
+            self.depthwise_branches = nn.ModuleList()
+            self.depthwise_activation = nn.Identity()
+            self.pointwise = nn.Identity()
+            self.block = nn.Sequential(
+                nn.Conv2d(
+                    channels, channels, 3, stride, 1, groups=channels, bias=False
+                ),
+                nn.BatchNorm2d(channels),
+                nn.SiLU(inplace=True),
+                nn.Conv2d(channels, out_channels, 1, bias=False),
+                nn.BatchNorm2d(out_channels),
+            )
         self.skip = (
             nn.Identity()
             if stride == 1 and channels == out_channels
@@ -37,7 +64,78 @@ class DepthwiseSeparableBlock(nn.Module):
         self.activation = nn.SiLU(inplace=True)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return self.activation(self.block(inputs) + self.skip(inputs))
+        if self.reparameterize_depthwise:
+            branch_outputs = [branch(inputs) for branch in self.depthwise_branches]
+            spatial = branch_outputs[0] + branch_outputs[1] + branch_outputs[2]
+            projected = self.pointwise(self.depthwise_activation(spatial))
+        else:
+            projected = self.block(inputs)
+        return self.activation(projected + self.skip(inputs))
+
+    def fuse_for_inference(self) -> None:
+        """Collapse training branches and Conv-BN pairs into the deploy block."""
+        if self.training:
+            raise RuntimeError("depthwise block must be in eval mode before fusion")
+        if self.reparameterize_depthwise:
+            fused_branches = [
+                fuse_conv_bn_eval(branch[0], branch[1])
+                for branch in self.depthwise_branches
+            ]
+            reference = fused_branches[0]
+            kernel = reference.weight.detach().clone()
+            bias = reference.bias.detach().clone()
+            kernel += F.pad(fused_branches[1].weight.detach(), (0, 0, 1, 1))
+            kernel += F.pad(fused_branches[2].weight.detach(), (1, 1, 0, 0))
+            bias += fused_branches[1].bias.detach() + fused_branches[2].bias.detach()
+            fused_depthwise = nn.Conv2d(
+                reference.in_channels,
+                reference.out_channels,
+                3,
+                reference.stride,
+                1,
+                groups=reference.groups,
+                bias=True,
+            ).to(device=kernel.device, dtype=kernel.dtype)
+            with torch.no_grad():
+                fused_depthwise.weight.copy_(kernel)
+                fused_depthwise.bias.copy_(bias)
+            fused_pointwise = fuse_conv_bn_eval(self.pointwise[0], self.pointwise[1])
+            self.block = nn.Sequential(
+                fused_depthwise,
+                nn.Identity(),
+                nn.SiLU(inplace=True),
+                fused_pointwise,
+                nn.Identity(),
+            )
+            self.depthwise_branches = nn.ModuleList()
+            self.depthwise_activation = nn.Identity()
+            self.pointwise = nn.Identity()
+            self.reparameterize_depthwise = False
+            return
+        self.block[0] = fuse_conv_bn_eval(self.block[0], self.block[1])
+        self.block[1] = nn.Identity()
+        self.block[3] = fuse_conv_bn_eval(self.block[3], self.block[4])
+        self.block[4] = nn.Identity()
+
+    @staticmethod
+    def _depthwise_branch(
+        channels: int,
+        kernel_size: tuple[int, int],
+        stride: int,
+        padding: tuple[int, int],
+    ) -> nn.Sequential:
+        return nn.Sequential(
+            nn.Conv2d(
+                channels,
+                channels,
+                kernel_size,
+                stride,
+                padding,
+                groups=channels,
+                bias=False,
+            ),
+            nn.BatchNorm2d(channels),
+        )
 
 
 class AngularMarginClassifier(nn.Linear):
@@ -110,6 +208,8 @@ class EfficientHCCRNet(nn.Module):
         in_channels: int = 1,
         width: int = 64,
         stage_depths: tuple[int, int, int] = (1, 2, 2),
+        stem_stride: int = 2,
+        reparameterize_depthwise: bool = False,
         dropout: float = 0.1,
         classification_head: str = "cosface",
         logit_scale: float = 32.0,
@@ -122,7 +222,11 @@ class EfficientHCCRNet(nn.Module):
             raise ValueError("width must be positive")
         if len(stage_depths) != 3 or any(depth < 1 for depth in stage_depths):
             raise ValueError("stage_depths must contain three positive values")
+        if stem_stride not in {1, 2}:
+            raise ValueError("stem_stride must be 1 or 2")
         self.stage_depths, self.width = stage_depths, width
+        self.stem_stride = stem_stride
+        self.reparameterize_depthwise = reparameterize_depthwise
         self.classification_head, self.logit_scale, self.angular_margin = (
             classification_head,
             logit_scale,
@@ -130,7 +234,7 @@ class EfficientHCCRNet(nn.Module):
         )
         self.effective_input_channels = 1
         channels = [width, width * 2, width * 4]
-        self.stem = ConvNormAct(1, channels[0], stride=2)
+        self.stem = ConvNormAct(1, channels[0], stride=stem_stride)
         blocks: list[nn.Module] = []
         stage_ranges: list[tuple[int, int]] = []
         previous = channels[0]
@@ -141,7 +245,10 @@ class EfficientHCCRNet(nn.Module):
             for block_index in range(depth):
                 blocks.append(
                     DepthwiseSeparableBlock(
-                        previous, output, 2 if stage > 0 and block_index == 0 else 1
+                        previous,
+                        output,
+                        2 if stage > 0 and block_index == 0 else 1,
+                        reparameterize_depthwise,
                     )
                 )
                 previous = output
@@ -207,9 +314,6 @@ def optimize_model_for_inference(model: nn.Module) -> nn.Module:
     for block in optimized.features:
         if not isinstance(block, DepthwiseSeparableBlock):
             continue
-        block.block[0] = fuse_conv_bn_eval(block.block[0], block.block[1])
-        block.block[1] = nn.Identity()
-        block.block[3] = fuse_conv_bn_eval(block.block[3], block.block[4])
-        block.block[4] = nn.Identity()
+        block.fuse_for_inference()
     optimized.embedding_dropout = nn.Identity()
     return optimized.requires_grad_(False)

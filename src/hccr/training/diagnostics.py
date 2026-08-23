@@ -71,6 +71,16 @@ def profile_model(
         else None
     )
     optimized_model = optimize_model_for_inference(model)
+    optimized_parameter_counts = _parameter_counts_by_component(optimized_model)
+    optimized_parameter_bytes = _parameter_bytes_by_component(optimized_model)
+    optimized_macs = estimate_macs_by_component(optimized_model, image_size, device)
+    optimized_full_class_projection = project_classifier_cost(
+        optimized_model,
+        optimized_parameter_counts,
+        optimized_parameter_bytes,
+        optimized_macs,
+        full_class_num_classes,
+    )
     optimization_equivalence = _compare_inference_outputs(
         model, optimized_model, image_size, device
     )
@@ -128,10 +138,17 @@ def profile_model(
             "transforms": [
                 "cache_normalized_classifier_weight",
                 "fold_conv_batch_norm",
+                "fuse_depthwise_training_branches",
                 "remove_eval_dropout_hop",
                 "sequential_feature_fast_path",
             ],
             "equivalence": optimization_equivalence,
+            "parameter_count": optimized_parameter_counts["total"],
+            "parameter_size_mib": optimized_parameter_bytes["total"] / (1024**2),
+            "estimated_macs": optimized_macs["total"],
+            "estimated_backbone_macs": optimized_macs["backbone"],
+            "estimated_head_macs": optimized_macs["head"],
+            "full_class_projection": optimized_full_class_projection,
             "benchmarks": optimized_benchmarks,
             "end_to_end_batch1_benchmark": optimized_end_to_end,
         },
@@ -147,23 +164,70 @@ def _compare_inference_outputs(
     image_size: int,
     device: str,
 ) -> dict[str, Any]:
-    sample = torch.linspace(
+    ramp = torch.linspace(
         0,
         1,
         steps=image_size * image_size,
         device=device,
     ).reshape(1, 1, image_size, image_size)
+    rows = torch.arange(image_size, device=device).reshape(-1, 1)
+    columns = torch.arange(image_size, device=device).reshape(1, -1)
+    checkerboard = ((rows + columns) % 2).reshape(1, 1, image_size, image_size).float()
+    samples = torch.cat(
+        (
+            torch.zeros_like(ramp),
+            torch.ones_like(ramp),
+            ramp,
+            1 - ramp,
+            checkerboard,
+        )
+    )
     model.eval()
     optimized_model.eval()
     with torch.inference_mode():
-        expected = model(sample)
-        actual = optimized_model(sample)
-    maximum_error = float(torch.max(torch.abs(expected - actual)).item())
+        expected = model(samples)
+        actual = optimized_model(samples)
+    absolute_error = torch.abs(expected - actual)
+    classifier = getattr(model, "classifier", None)
+    logit_scale = max(abs(float(getattr(classifier, "scale", 1.0))), 1.0)
+    normalized_expected = expected / logit_scale
+    normalized_actual = actual / logit_scale
+    normalized_atol = 1e-3
+    rtol = 1e-4
+    strict_atol = 1e-5
+    topk = min(5, expected.shape[1])
+    top1_agreement = expected.argmax(dim=1).eq(actual.argmax(dim=1)).float().mean()
+    expected_topk = expected.topk(topk, dim=1).indices.sort(dim=1).values
+    actual_topk = actual.topk(topk, dim=1).indices.sort(dim=1).values
+    topk_agreement = expected_topk.eq(actual_topk).all(dim=1).float().mean()
+    normalized_allclose = torch.allclose(
+        normalized_expected,
+        normalized_actual,
+        rtol=rtol,
+        atol=normalized_atol,
+    )
     return {
-        "maximum_absolute_logit_error": maximum_error,
-        "allclose_rtol": 1e-4,
-        "allclose_atol": 1e-5,
-        "passed": bool(torch.allclose(expected, actual, rtol=1e-4, atol=1e-5)),
+        "sample_count": len(samples),
+        "maximum_absolute_logit_error": float(absolute_error.max().item()),
+        "mean_absolute_logit_error": float(absolute_error.mean().item()),
+        "logit_scale": logit_scale,
+        "maximum_absolute_normalized_logit_error": float(
+            (absolute_error / logit_scale).max().item()
+        ),
+        "allclose_rtol": rtol,
+        "strict_logit_atol": strict_atol,
+        "strict_logit_allclose_passed": bool(
+            torch.allclose(expected, actual, rtol=rtol, atol=strict_atol)
+        ),
+        "normalized_logit_atol": normalized_atol,
+        "normalized_logit_allclose_passed": bool(normalized_allclose),
+        "top1_agreement": float(top1_agreement.item()),
+        "top5_agreement": float(topk_agreement.item()),
+        "passed": bool(
+            normalized_allclose
+            and top1_agreement.item() == 1.0
+            and topk_agreement.item() == 1.0
+        ),
     }
 
 

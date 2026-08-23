@@ -1,19 +1,31 @@
-# Keep all entries on the same dataset split, seed, resolution and hardware.
-base:
+# Keep data, seeds, resolution, and hardware fixed across every variant.
+experiment_id: architecture-ablations
+manifest: data/processed/casia_hwdb/manifest.csv
+output_dir: experiments
+seeds: [7, 17, 29]
+profile_devices: [cpu]
+full_class_num_classes: 7186
+
+base_args:
+  max_classes: 1000
   image_size: 64
   batch_size: 64
   epochs: 10
-  seed: 7
-candidates:
+
+variants:
   - name: narrow
-    width: 24
-    stage_depths: [1, 2, 2]
+    args:
+      width: 24
+      stage_depths: [1, 2, 2]
   - name: baseline
-    width: 32
-    stage_depths: [1, 2, 2]
+    args:
+      width: 32
+      stage_depths: [1, 2, 2]
   - name: wider
-    width: 48
-    stage_depths: [1, 2, 2]
+    args:
+      width: 48
+      stage_depths: [1, 2, 2]
   - name: deeper
-    width: 32
-    stage_depths: [2, 3, 3]
+    args:
+      width: 32
+      stage_depths: [2, 3, 3]

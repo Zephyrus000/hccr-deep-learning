@@ -1,289 +1,313 @@
 # HCCR Deep Learning
 
-Offline handwritten Chinese character recognition (HCCR) for isolated,
-grayscale character images. The project builds and evaluates a compact custom
-CNN, `EfficientHCCRNet`, with accuracy and inference latency treated as joint
-requirements.
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-The current implementation supports dataset-manifest training, validation,
-experiment artifacts, architecture diagnostics, class-subset benchmarks and
-artifact-backed prediction primitives. It is designed for the CASIA-HWDB
-manifest produced under `data/processed/casia_hwdb/`.
+An offline training and evaluation toolkit for isolated handwritten Chinese
+character recognition (HCCR). The repository contains a compact PyTorch CNN,
+manifest-based CASIA-HWDB data handling, reproducible experiment artifacts,
+and latency-aware model evaluation.
 
-## Install
+> [!IMPORTANT]
+> CASIA-HWDB is not distributed with this repository. Obtain the dataset under
+> its own terms and keep it under the ignored `data/` directory.
+
+## Highlights
+
+- Compact depthwise-separable CNN with CosFace or ArcFace classification heads.
+- Deterministic manifest generation and validation for folder-exported data.
+- Reproducible training runs with checkpoints, metrics, plots, logs, and
+  environment metadata.
+- Class-subset experiments for faster architecture screening.
+- Multi-seed and variant sweeps with resumable jobs and aggregate reports.
+- Eager and optimized inference benchmarks for CPU and CUDA deployments.
+- Batch-normalization recalibration, calibration metrics, and validation error
+  diagnostics.
+
+The executable CLI implements `train`, `benchmark`, and `compare-runs` through
+separate command modules. `validate`, `deploy`, `prepare-data`, `evaluate`,
+`predict`, and `tune` are explicit workflow scaffolds; use the Python APIs
+documented below until those commands are implemented.
+
+## Architecture
+
+```text
+folder-exported images
+        │
+        ▼
+dataset audit + manifest ──► deterministic preprocessing
+        │                              │
+        └──────────────────────────────┤
+                                       ▼
+                            EfficientHCCRNet training
+                                       │
+                       ┌───────────────┴───────────────┐
+                       ▼                               ▼
+              experiment artifacts              evaluation reports
+                       │                               │
+                       └───────────────┬───────────────┘
+                                       ▼
+                           optimized inference benchmark
+```
+
+`EfficientHCCRNet` uses a convolutional stem, three configurable
+depthwise-separable residual stages, global average pooling, an embedding
+projection, and an angular classifier. Inference optimization folds
+Conv-BatchNorm pairs, collapses optional training-only depthwise branches,
+removes eval-only module hops, and caches normalized classifier weights without
+modifying the training checkpoint.
+
+## Installation
+
+Requirements:
+
+- Python 3.12 or newer
+- A CUDA-capable PyTorch installation for GPU training (optional)
+- Git for run metadata
+
+Create an isolated environment and install the project:
+
+```bash
+python -m venv .venv
+```
+
+On Windows PowerShell:
 
 ```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -e .
-pre-commit install
 ```
 
-Run the local gate before committing:
+On Linux or macOS:
 
-```powershell
-python -m black --check src tests
-python -m ruff check src tests
-python -m unittest discover -s tests -v
+```bash
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-## First training run
+The requirements file points pip at the CUDA 13.0 PyTorch wheel index. Install
+the appropriate PyTorch build first if your platform needs a different CUDA or
+CPU-only wheel.
 
-Start with a fixed, small class subset. It is much faster for testing the data
-pipeline, augmentation, optimizer and architecture; its accuracy is not a
-replacement for a full 7,186-class result.
+Verify the installation:
 
-```powershell
-hccr train `
-  --manifest data/processed/casia_hwdb/manifest.csv `
-  --output-dir experiments `
-  --max-classes 200 `
-  --class-subset-seed 7 `
-  --epochs 10 `
-  --batch-size 64 `
-  --learning-rate 3e-4 `
-  --weight-decay 1e-4 `
-  --scheduler cosine `
-  --early-stopping-patience 8 `
+```bash
+hccr --version
+hccr --help
+```
+
+## Dataset preparation
+
+The manifest builder expects one directory per Unicode label:
+
+```text
+data/raw/
+├── CASIA-HWDB_Train/Train/
+│   ├── 一/*.png
+│   ├── 丁/*.png
+│   └── ...
+└── CASIA-HWDB_Test/Test/
+    ├── 一/*.png
+    ├── 丁/*.png
+    └── ...
+```
+
+Audit the PNG files and generate a frozen manifest:
+
+```bash
+python scripts/build_dataset_manifest.py \
+  --data-root data/raw \
+  --train-dir data/raw/CASIA-HWDB_Train/Train \
+  --test-dir data/raw/CASIA-HWDB_Test/Test \
+  --output-dir data/processed/casia_hwdb
+```
+
+Generated files include `manifest.csv`, `labels.json`, `audit_report.json`, and
+`invalid_images.json`. The training pipeline requires these manifest columns:
+
+| Column | Meaning |
+| --- | --- |
+| `sample_id` | Stable unique sample identifier. |
+| `source_file` | Image path relative to the detected data root. |
+| `writer_id` | Writer identity when available; may be empty. |
+| `unicode_label` | Character represented by the sample. |
+| `class_id` | Integer class identifier. |
+| `split` | `train`, `validation`, or `test`. |
+
+Do not commit the raw dataset, generated manifests, checkpoints, or local
+experiment output.
+
+## Training
+
+Start with a small deterministic class subset to validate the pipeline:
+
+```bash
+hccr train \
+  --manifest data/processed/casia_hwdb/manifest.csv \
+  --output-dir experiments \
+  --max-classes 200 \
+  --class-subset-seed 7 \
+  --epochs 10 \
+  --batch-size 64 \
+  --learning-rate 3e-4 \
+  --weight-decay 1e-4 \
+  --scheduler cosine \
   --device auto
 ```
 
-For a pipeline sanity check, verify the model can memorize a tiny sample:
+For a quick overfitting check:
 
-```powershell
-hccr train --manifest data/processed/casia_hwdb/manifest.csv `
-  --max-classes 20 --overfit-samples 64 --overfit-check --epochs 30
+```bash
+hccr train \
+  --manifest data/processed/casia_hwdb/manifest.csv \
+  --max-classes 20 \
+  --overfit-samples 64 \
+  --overfit-check \
+  --epochs 30
 ```
 
-Every invocation creates `experiments/<run-id>/`. Important artifacts include:
-
-- `config.json`, `metadata.json`: effective arguments, run ID, Git revision,
-  environment and resolved device.
-- `checkpoint.pt`, `checkpoint_metadata.json`, `labels.json`: model state and
-  the class-index-to-Unicode mapping required by inference.
-- `curves.json`, `training_diagnostics.json`, `run.log`: loss, learning rate,
-  gradients, activation statistics, throughput and logs.
-- `resource_profile.json`: parameter count, estimated MACs/FLOPs and batch
-  1/8/32 latency mean, p50, p95 and p99.
-- `per_class_metrics.csv`, `validation_errors.csv`, calibration artifacts,
-  error gallery and preprocessing gallery.
-
-`experiments/experiment_summary.csv` is the cross-run comparison table. Use a
-quality gate to compare one candidate with a baseline:
-
-```powershell
-hccr compare-runs `
-  --summary experiments/experiment_summary.csv `
-  --baseline <baseline-run-id> `
-  --candidate <candidate-run-id> `
-  --min-top1-gain 0.01 `
-  --max-p95-latency-ratio 1.10
-```
-
-## Automated seed sweeps and ablations
-
-Use the configuration-driven runner to execute variants and seeds sequentially.
-It captures each child process in a dedicated log, supports `--resume`, profiles
-the trained and projected 7,186-class heads on the requested devices, and writes
-variant aggregates under `experiments/sweeps/<experiment-id>/`.
-
-Validate an experiment matrix without training:
-
-```powershell
-python scripts/run_experiments.py `
-  --config configs/experiment/example_1k_ablation.yaml `
-  --dry-run
-```
-
-Benchmark the exact deploy form in FP32 and FP16 after training:
-
-```powershell
-python scripts/benchmark_inference.py `
-  --checkpoint experiments/<run-id>/checkpoint.pt `
-  --num-classes 1000 `
-  --image-size 96 `
-  --width 80 `
-  --stage-depths 2 3 3 `
-  --device cuda `
-  --precisions float32 float16 `
-  --cuda-graph
-```
-
-The deploy benchmark caches normalized angular-classifier weights, folds
-Conv-BatchNorm pairs and removes inference-only module hops. FP16 is a separate
-CUDA deployment representation; the source checkpoint remains FP32. On CPU,
-benchmark `--cpu-threads 1`, `2`, `4`, and `8` independently—using all host
-cores for a batch-1 request often increases latency and jitter.
-
-Run one configuration for three seeds using arbitrary train CLI arguments:
-
-```powershell
-python scripts/run_experiments.py `
-  --experiment-id baseline-1k-three-seeds `
-  --seeds 7 17 29 `
-  --set max_classes=1000 `
-  --set image_size=96 `
-  --set width=64 `
-  --set epochs=20 `
-  --profile-devices cuda cpu
-```
-
-Compare two preprocessing options without creating a Cartesian product:
-
-```powershell
-python scripts/run_experiments.py `
-  --experiment-id polarity-1k `
-  --seeds 7 17 29 `
-  --set max_classes=1000 `
-  --variant '{"name":"black","args":{"input_polarity":"black_on_white"}}' `
-  --variant '{"name":"white","args":{"input_polarity":"white_on_black"}}' `
-  --profile-devices cuda cpu
-```
-
-The first declared variant is the comparison baseline. Prefer YAML for larger
-matrices; every `base_args` and variant `args` key maps directly to a `train`
-CLI option.
-
-## Training configuration
-
-The documented baseline is [configs/experiment/baseline.yaml](configs/experiment/baseline.yaml).
-The CLI is currently the executable source of training configuration; its
-effective values are always captured in a run's `config.json`.
+Use `hccr train --help` for the complete option list. Important controls are:
 
 | Option | Purpose |
 | --- | --- |
-| `--batch-size`, `--num-workers` | DataLoader throughput and memory use. |
-| `--dataloader-start-method`, `--prefetch-factor` | CUDA-safe worker creation and Docker shared-memory pressure. `auto` selects `spawn` on CUDA. |
-| `--persistent-workers`, `--worker-timeout-seconds` | Reuse workers between epochs and turn a stalled worker into a visible timeout. |
-| `--learning-rate`, `--weight-decay` | AdamW optimization. |
-| `--scheduler` | `none`, `cosine`, or validation-top-1 `plateau`. |
-| `--early-stopping-patience` | Stop after this many non-improving validation epochs; `0` disables it. |
-| `--width` | Base channel width of `EfficientHCCRNet`. |
-| `--dropout` | Classifier/embedding dropout probability. |
-| `--image-size` | Square model input size. |
-| `--max-classes`, `--class-subset-seed` | Deterministic fast benchmark subset. |
-| `--center-by-centroid` | Optional foreground-centroid normalization. |
-| `--otsu-binarize`, `--median-filter-size` | Optional denoising/binarization ablations. |
-| `--input-polarity` | `black_on_white` control or `white_on_black` inversion ablation. |
+| `--width`, `--stage-depths` | Backbone capacity. |
+| `--stem-stride` | Compare early stride-2 downsampling with stroke-preserving stride 1. |
+| `--reparameterize-depthwise` | Train 3×3/1×3/3×1 depthwise branches and fuse them for deploy; enabled by default. Use `--no-reparameterize-depthwise` for a control run. |
+| `--classification-head` | `cosface` or `arcface`. |
+| `--margin-warmup-ratio` | Fraction of epochs used to ramp the angular margin multiplier from 0 to 1; promoted default is `0.2`. |
+| `--image-size` | Square model input resolution. |
+| `--max-classes` | Deterministic fast-benchmark class subset. |
+| `--scheduler` | `none`, `cosine`, or validation-based `plateau`. |
+| `--num-workers` | DataLoader concurrency. |
+| `--bn-recalibration-batches` | Post-training BN-statistics recalibration. |
 | `--device` | `auto`, `cpu`, or `cuda`. |
-| `--seed` | Reproducible model/data-order/augmentation setup. |
 
-## Source module map
+Each run is written to `experiments/<run-id>/`. Core artifacts include:
 
-All application code lives in `src/hccr`.
+- `checkpoint.pt`, `checkpoint_metadata.json`, and `labels.json`
+- `config.json`, `metadata.json`, `metrics.json`, and `curves.json`
+- `resource_profile.json` and `training_diagnostics.json`
+- learning curves, reliability diagrams, per-class metrics, and error galleries
+- a run-scoped log and a cross-run `experiment_summary.csv`
 
-| Module | Main responsibility |
-| --- | --- |
-| `hccr.cli` | CLI parser and dispatch for `train` and `compare-runs`; other command names remain placeholders. |
-| `hccr.config` | YAML loader plus small data/model/experiment schema contracts. |
-| `hccr.data` | Folder adapters, CSV-manifest invariants/audits, writer split support, image dataset and deterministic class-subset mapping. |
-| `hccr.preprocessing` | Deterministic eval normalization; random affine train augmentation; optional centroid, Otsu and median filtering; visual gallery. |
-| `hccr.models` | `EfficientHCCRNet`, its depthwise-separable residual blocks and model factory. |
-| `hccr.training` | End-to-end workflow, train epoch, AdamW artifacts, callbacks, resource profiling and architecture diagnostics. |
-| `hccr.evaluation` | Top-k and macro/head/mid/tail metrics, validation loop, calibration/per-class/confusion/error reports and static plots. |
-| `hccr.inference` | `Predictor`, which returns artifact-label-aware top-k scores from a prepared tensor. |
-| `hccr.experiments` | Baseline/candidate quality gate using `experiment_summary.csv`. |
-| `hccr.experiment_runner` | Sequential custom-argument seed/variant orchestration, resume, logs, aggregation and dual-device post-profiling. |
-| `hccr.utils` | Device resolution, structured JSON experiment metadata and run-scoped logging. |
+## Experiment sweeps
 
-### `hccr.data`
+Validate an experiment matrix without starting training:
 
-- `folder_adapter.py`: enumerates folder-labeled source images.
-- `manifest.py`: reads the frozen manifest and validates required columns,
-  split membership, label consistency and writer overlap.
-- `splitter.py`: deterministic writer-disjoint split policy when writer IDs
-  exist.
-- `dataset.py`: opens images from manifest-relative paths, applies a transform,
-  returns `(tensor, target, metadata)` and can remap a class subset to compact
-  output indices.
+```bash
+python scripts/run_experiments.py \
+  --config configs/experiment/ablations.yaml \
+  --dry-run
+```
 
-### Entry point, configuration and utilities
+Run a matched three-seed experiment:
 
-- `__init__.py`: package version.
-- `__main__.py`: enables `python -m hccr` by delegating to the CLI.
-- `cli.py`: command parsing and conversion of train options into
-  `TrainingConfig`.
-- `config/loader.py`: explicit YAML mapping reader.
-- `config/schema.py`: lightweight `DataConfig`, `ModelConfig` and
-  `ExperimentConfig` dataclasses for tools that consume YAML.
-- `utils/device.py`: validates and resolves `auto`/CPU/CUDA device requests.
-- `utils/experiment.py`: run IDs, environment/Git metadata and structured JSON
-  persistence.
-- `utils/logging.py`: console/file logger setup and handler cleanup for Windows.
+```bash
+python scripts/run_experiments.py \
+  --experiment-id baseline-1k-three-seeds \
+  --seeds 7 17 29 \
+  --set max_classes=1000 \
+  --set image_size=64 \
+  --set width=64 \
+  --set epochs=20 \
+  --profile-devices cuda cpu
+```
 
-### `hccr.preprocessing`
+Every `base_args` or variant `args` key maps to a `hccr train` option. Keep the
+class subset, seeds, input size, hardware, and benchmark settings fixed when
+comparing model variants.
 
-- `EvalPreprocessor`: grayscale conversion, optional polarity/median/Otsu,
-  foreground crop, aspect-ratio-preserving resize, padding and optional
-  centroid centering. It must remain deterministic.
-- `TrainPreprocessor`: inherits eval normalization, then applies random
-  rotation, translation, scale and optional blur.
-- `gallery.py`: generates raw-versus-preprocessed contact sheets for visual QA.
+Apply an accuracy/latency quality gate to two completed runs:
 
-Keep Otsu, median filtering and centroid centering as ablations rather than
-unconditional defaults: they can improve noisy scans but may erase or distort
-fine HCCR strokes.
+```bash
+hccr compare-runs \
+  --summary experiments/experiment_summary.csv \
+  --baseline <baseline-run-id> \
+  --candidate <candidate-run-id> \
+  --min-top1-gain 0.01 \
+  --max-p95-latency-ratio 1.10
+```
 
-### `hccr.models`
+## Inference benchmarking
 
-`efficient_hccr.py` contains the target architecture:
+Benchmark the deploy form after loading a checkpoint:
 
-1. `ConvNormAct` stem downsamples grayscale input.
-2. Configurable depthwise-separable residual stages learn spatial features.
-3. Global average pooling and a linear classifier produce class logits.
+```bash
+hccr benchmark \
+  --checkpoint experiments/<run-id>/checkpoint.pt \
+  --num-classes 1000 \
+  --image-size 64 \
+  --width 64 \
+  --stage-depths 1 2 2 \
+  --device cuda \
+  --precisions float32 float16 \
+  --cuda-graph
+```
 
-The intended architecture experiments are width, stage depth, resolution and
-preprocessing variants. Compare candidates using both validation accuracy and
-batch-1 p95 latency, not parameter count alone.
-
-### `hccr.training`
-
-- `workflow.py`: reproducible run setup; dataset/loaders; optimizer, scheduler
-  and early stopping; checkpoints; all report generation.
-- `trainer.py`: tqdm train loop and per-epoch loss, gradient, data-load and
-  compute timing statistics.
-- `callbacks.py`: validation-top-1 early stopping with `patience` and
-  `min_delta`.
-- `diagnostics.py`: decomposed parameter/MAC cost, operator coverage,
-  model-only/end-to-end latency, full-class head projection and top-level
-  activation/gradient diagnostics.
-- `artifacts.py`: model checkpoint and checkpoint metadata persistence.
-
-### `hccr.evaluation`
-
-- `metrics.py`: top-1 and top-5 classification metrics.
-- `evaluator.py`: inference-mode validation aggregation.
-- `diagnostics.py`: per-class and macro/head/mid/tail recall, complete confusion
-  pairs, top-k error CSV, ECE/reliability plot, calibration bins, validation
-  health and image error gallery.
-- `reports.py`: learning curve, selected-class confusion matrix and confidence
-  distribution figures.
-- `analysis.py`: lightweight error/confusion analysis helpers.
-
-### `hccr.inference` and `hccr.experiments`
-
-`Predictor` accepts a loaded model, ordered labels and a preprocessed tensor;
-checkpoint loading/serving is intentionally kept outside the predictor itself.
-`compare_runs` accepts summary path and run IDs, then enforces a minimum top-1
-gain and maximum p95-latency ratio.
+For CPU latency, benchmark explicit thread counts independently, for example
+`--cpu-threads 1`, `2`, `4`, and `8`. FP16 and CUDA graphs require CUDA.
+`python scripts/benchmark_inference.py` remains available as a compatibility
+wrapper around the same command implementation.
 
 ## Repository layout
 
 ```text
-configs/       Baseline, data, model and ablation presets
-data/          Ignored local CASIA data and generated manifest
-docs/          Ignored Obsidian project vault
-scripts/       Dataset manifest/audit utilities
-src/hccr/      Application packages documented above
-tests/         Unit and end-to-end smoke tests
+configs/              Data, model, baseline, and ablation configuration
+scripts/              Dataset, sweep, and inference benchmark entry points
+src/hccr/             Installable Python package
+├── commands/         Isolated CLI parsers and command handlers
+├── config/           YAML loading and lightweight schemas
+├── data/             Manifest validation and dataset adapters
+├── evaluation/       Metrics, diagnostics, and plots
+├── inference/        Artifact-aware prediction primitive
+├── models/           EfficientHCCRNet and deploy optimization
+├── preprocessing/    Train/evaluation image transforms
+├── training/         Training workflow, callbacks, and artifacts
+└── utils/            Device, logging, and experiment utilities
+tests/                Unit and end-to-end smoke tests
 ```
 
-## Development notes
+## Development
 
-- Do not compare different architectures using different class subsets, seeds,
-  input sizes or hardware.
-- A low-class benchmark identifies bad candidates quickly; run finalists on the
-  full class set before making accuracy claims.
-- Train/eval preprocessing must not leak augmentation into validation or
-  inference.
-- `data/` and `docs/` are intentionally excluded from Git; commit source,
-  configs, tests and this README instead.
+Install the development tools from `requirements.txt`, then run:
+
+```bash
+python -m ruff check src tests scripts
+python -m black --check src tests scripts
+python -m pytest
+```
+
+Or use the equivalent Make targets:
+
+```bash
+make lint
+make format-check
+make test
+```
+
+Before submitting a change:
+
+1. Keep training and validation preprocessing isolated.
+2. Add or update tests for behavior changes.
+3. Compare architecture candidates on identical data and hardware.
+4. Report both accuracy and batch-1 p95 latency.
+5. Avoid committing datasets, credentials, checkpoints, or generated runs.
+
+## Limitations
+
+- The project targets isolated characters, not text-line recognition.
+- Dataset download and original CASIA container decoding are out of scope; the
+  manifest builder consumes folder-exported PNG images.
+- The high-level `validate`, `deploy`, `evaluate`, `predict`, and `tune` CLI
+  commands are not yet implemented.
+- Subset results are screening signals and must not be presented as full
+  7,186-class results.
+
+## License
+
+Source code is available under the [MIT License](LICENSE). Dataset rights and
+restrictions remain with the dataset provider.

@@ -1,59 +1,79 @@
 # `hccr.models`
 
-The target architecture is a compact grayscale CNN built for a joint accuracy
-and inference-latency objective.
+This package contains the retained compact grayscale CNN and its deployment
+optimization. Architectures removed by the ablation process—attention blocks,
+cross-stage routes, CSP stages, and directional input adapters—are not part of
+the current API.
 
-| Symbol | Role |
+## Public API
+
+| Symbol | Purpose |
 | --- | --- |
-| `ConvNormAct` | 3×3 convolution, batch normalization and SiLU activation. |
-| `DepthwiseSeparableBlock` | Depthwise convolution, pointwise projection and residual skip. |
-| `CrossStageAdd` | Project-defined stage-2→stage-3 projected additive bridge. |
-| `CrossStageCBAM` | Paper-inspired cross-stage route using parallel CAM/SAM on the stage-2 source. |
-| `CrossStagePartialStage` | CSP split/transform/bypass/merge stage. |
-| `AngularMarginClassifier` | Target-free cosine inference with train-only CosFace/ArcFace margins. |
-| `DirectionalInputAdapter` | Fixed grayscale+Sobel or grayscale+four-orientation-Gabor input features. |
-| `EfficientHCCRNet` | Stem, three configurable feature stages, global average pool and linear classifier. |
-| `build_model(name, **kwargs)` | Factory; currently accepts `efficient_hccr`. |
+| `EfficientHCCRNet` | Three-stage depthwise-separable CNN for one-channel character images. |
+| `build_model(name, **kwargs)` | Factory accepting the single name `efficient_hccr`. |
+| `optimize_model_for_inference(model)` | Return a frozen eval copy with safe inference transformations. |
 
-Inputs are `[batch, 1, image_size, image_size]`; outputs are class logits.
-The retained model always consumes one grayscale channel.
-Directional modes always retain raw grayscale as channel 0 and compute fixed
-features inside the model so training, validation, and inference share exactly
-the same implementation.
-`width` controls channels and `stage_depths` controls stage capacity. Compare
-architecture variants using accuracy plus batch-1 p95 latency from
-`resource_profile.json`.
+Internal building blocks in `efficient_hccr.py` are:
 
-`EfficientHCCRNet.forward_features(..., return_stages=True)` exposes logical
-`stage1`/`stage2`/`stage3` outputs without changing legacy `features.*`
-checkpoint keys. Training accepts exactly three positive depths through
-`--stage-depths`, for example `--stage-depths 1 2 3`.
+- `ConvNormAct`: 3×3 convolution, BatchNorm, and SiLU.
+- `DepthwiseSeparableBlock`: depthwise spatial convolution, pointwise
+  projection, residual/identity skip, and SiLU.
+- `AngularMarginClassifier`: normalized CosFace or ArcFace head.
 
-Width is a positive integer, and `stage_depths` accepts any three positive
-integers. Classifier choices are CosFace and ArcFace.
-candidate promotion still depends on matched GPU/CPU latency and validation
-accuracy rather than parameter count alone.
+## Model contract
 
-Cross-stage variants are disabled by default and must be ablated separately:
+```python
+import torch
 
-- `--cross-stage projected_residual` enables the projected residual route.
-- `--cross-stage c_cbam` enables the reference-inspired stage-2→stage-3
-  adaptation. It uses the reference's middle-stage parallel CAM/SAM pattern,
-  but does not claim to reproduce the paper's complete SqueezeNext topology.
-- `--csp-stages 3 --csp-split-ratio 0.5` replaces stage 3 with a CSP stage.
+from hccr.models import EfficientHCCRNet
 
-Do not combine these mechanisms for their first screen. Compare each candidate
-against the same class subset, seed, resolution, and CPU/CUDA benchmark
-protocol before considering a combined model.
+model = EfficientHCCRNet(
+    num_classes=1000,
+    width=64,
+    stage_depths=(1, 2, 2),
+    stem_stride=2,
+    reparameterize_depthwise=True,
+    classification_head="cosface",
+)
+logits = model(torch.rand(8, 1, 64, 64))
+```
 
-Resource profiles report total, backbone, and classifier-head parameters and
-MACs separately. Use backbone values when comparing architectures across
-different class counts because the 7,186-class head is much larger than a
-1,000-class subset head.
+Inputs must be BCHW grayscale tensors; multi-channel or non-4D inputs are
+rejected. `width` defines stage channels `(width, 2×width, 4×width)`, and
+`stage_depths` must contain three positive integers. The stem downsamples once;
+stages 2 and 3 downsample at their first block.
 
-For deployment, call `optimize_model_for_inference(model)` after loading the
-checkpoint and moving it to the target device. It returns an eval-only copy
-that caches the normalized CosFace/ArcFace class weights, folds Conv-BatchNorm
-pairs, removes the eval-time dropout hop, and uses the sequential feature fast
-path. These transformations do not require retraining and resource profiles
-record both eager and optimized benchmarks plus a logit-equivalence check.
+`forward_features(inputs, return_stages=True)` returns the final feature map and
+named `stage1`/`stage2`/`stage3` outputs. The flat `features.*` layout is kept so
+checkpoint keys remain stable while diagnostics can inspect logical stages.
+
+`stem_stride=1` preserves the full input resolution through stage 1 for the
+thin-stroke ablation; the default `2` keeps the low-latency path. Enabling
+`reparameterize_depthwise` trains parallel depthwise `3×3`, `1×3`, and `3×1`
+branches followed by the existing pointwise `1×1` projection. Deployment pads
+and sums the asymmetric kernels into one `3×3` depthwise convolution.
+
+The training CLI and `TrainingConfig` promote the multi-branch form by default;
+`--no-reparameterize-depthwise` remains available for matched control runs.
+The low-level `EfficientHCCRNet` constructor retains its explicit single-branch
+default so older checkpoint reconstruction does not silently change state keys.
+
+## Angular heads
+
+CosFace and ArcFace normalize embeddings and class weights. Plain `forward`
+returns target-free scaled cosine logits for validation/inference.
+`training_logits(inputs, targets, margin_multiplier)` applies the target margin
+only during training; the multiplier must be between zero and one and supports
+margin warm-up.
+
+## Inference optimization
+
+`optimize_model_for_inference` deep-copies the model, switches it to eval mode,
+folds Conv-BatchNorm pairs, collapses reparameterized depthwise branches,
+replaces eval dropout with identity, caches normalized classifier weights, and
+disables gradients. The source training model and checkpoint remain unchanged.
+
+Always verify optimized/eager logit equivalence on the target device. The
+training resource profile performs this check and records both benchmark sets.
+Compare model candidates using validation accuracy and matched batch-1 p95
+latency, not parameter count alone.

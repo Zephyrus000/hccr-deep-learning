@@ -8,6 +8,14 @@ version = "0.1.0"
 description = "Offline handwritten Chinese character recognition."
 readme = "README.md"
 requires-python = ">=3.12"
+keywords = ["computer-vision", "deep-learning", "hccr", "pytorch"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "matplotlib>=3.9",
   "Pillow>=10.0",
@@ -16,6 +24,11 @@ dependencies = [
   "torch>=2.6",
   "tqdm>=4.66",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Zephyrus000/hccr-deep-learning"
+Issues = "https://github.com/Zephyrus000/hccr-deep-learning/issues"
+Repository = "https://github.com/Zephyrus000/hccr-deep-learning"
 
 [project.scripts]
 hccr = "hccr.cli:main"

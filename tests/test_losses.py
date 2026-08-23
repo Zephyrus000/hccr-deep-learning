@@ -20,9 +20,12 @@ class ClassificationLossTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "label_smoothing"):
                 build_classification_loss(value)
 
-    def test_margin_warmup_reaches_full_strength_on_final_epoch(self) -> None:
+    def test_margin_warmup_uses_first_fifth_of_training(self) -> None:
         self.assertEqual(
-            [_margin_multiplier(epoch, 3, "arcface") for epoch in (1, 2, 3)],
-            [0.0, 0.5, 1.0],
+            [
+                _margin_multiplier(epoch, 20, 0.2, "arcface")
+                for epoch in (1, 2, 3, 4, 5)
+            ],
+            [0.0, 1 / 3, 2 / 3, 1.0, 1.0],
         )
-        self.assertEqual(_margin_multiplier(1, 3, "linear"), 1.0)
+        self.assertEqual(_margin_multiplier(1, 20, 0.0, "cosface"), 1.0)

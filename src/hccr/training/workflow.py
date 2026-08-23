@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,11 +55,13 @@ class TrainingConfig:
     width: int = 64
     dropout: float = 0.1
     stage_depths: tuple[int, int, int] = (1, 2, 2)
+    stem_stride: int = 2
+    reparameterize_depthwise: bool = True
     classification_head: str = "cosface"
     label_smoothing: float = 0.0
     logit_scale: float = 32.0
     angular_margin: float = 0.1
-    margin_warmup_epochs: int = 3
+    margin_warmup_ratio: float = 0.2
     device: str = "auto"
     seed: int = 7
     num_workers: int = 0
@@ -221,6 +224,8 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         width=config.width,
         dropout=config.dropout,
         stage_depths=config.stage_depths,
+        stem_stride=config.stem_stride,
+        reparameterize_depthwise=config.reparameterize_depthwise,
         classification_head=config.classification_head,
         logit_scale=config.logit_scale,
         angular_margin=config.angular_margin,
@@ -249,7 +254,10 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     validation_stability = None
     for epoch in range(1, config.epochs + 1):
         margin_multiplier = _margin_multiplier(
-            epoch, config.margin_warmup_epochs, config.classification_head
+            epoch,
+            config.epochs,
+            config.margin_warmup_ratio,
+            config.classification_head,
         )
         train_metrics = train_epoch(
             model,
@@ -299,13 +307,15 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 model,
                 output_dir,
                 {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "model": {
                         "name": "efficient_hccr",
                         "in_channels": 1,
                         "effective_input_channels": model.effective_input_channels,
                         "width": config.width,
                         "stage_depths": list(config.stage_depths),
+                        "stem_stride": config.stem_stride,
+                        "reparameterize_depthwise": config.reparameterize_depthwise,
                         "dropout": config.dropout,
                         "classification_head": config.classification_head,
                         "logit_scale": config.logit_scale,
@@ -315,7 +325,11 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                     "training": {
                         "loss": "cross_entropy",
                         "label_smoothing": config.label_smoothing,
-                        "margin_warmup_epochs": config.margin_warmup_epochs,
+                        "margin_schedule": "linear_warmup",
+                        "margin_warmup_ratio": config.margin_warmup_ratio,
+                        "resolved_margin_warmup_epochs": _margin_warmup_epochs(
+                            config.epochs, config.margin_warmup_ratio
+                        ),
                         "augmentation": "random_affine_and_blur",
                     },
                     "preprocess": {
@@ -470,6 +484,8 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("validation_drop_threshold must be non-negative")
     if len(config.stage_depths) != 3 or any(depth < 1 for depth in config.stage_depths):
         raise ValueError("stage_depths must contain three positive values")
+    if config.stem_stride not in {1, 2}:
+        raise ValueError("stem_stride must be 1 or 2")
     if config.width < 1:
         raise ValueError("width must be positive")
     if not 0 <= config.dropout < 1:
@@ -482,8 +498,8 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("logit_scale must be positive")
     if not 0 <= config.angular_margin < torch.pi / 2:
         raise ValueError("angular_margin must be in [0, pi/2)")
-    if config.margin_warmup_epochs < 0:
-        raise ValueError("margin_warmup_epochs must be non-negative")
+    if not 0 <= config.margin_warmup_ratio <= 1:
+        raise ValueError("margin_warmup_ratio must be in [0, 1]")
 
 
 def _initialize_data_worker(_worker_id: int) -> None:
@@ -514,8 +530,17 @@ def _data_loader_options(config: TrainingConfig, device: str) -> dict:
     return options
 
 
-def _margin_multiplier(epoch: int, warmup_epochs: int, head: str) -> float:
-    if head == "linear" or warmup_epochs == 0:
+def _margin_warmup_epochs(total_epochs: int, warmup_ratio: float) -> int:
+    if warmup_ratio == 0:
+        return 0
+    return max(1, math.ceil(total_epochs * warmup_ratio))
+
+
+def _margin_multiplier(
+    epoch: int, total_epochs: int, warmup_ratio: float, head: str
+) -> float:
+    warmup_epochs = _margin_warmup_epochs(total_epochs, warmup_ratio)
+    if head not in {"cosface", "arcface"} or warmup_epochs == 0:
         return 1.0
     if warmup_epochs == 1:
         return 1.0
@@ -615,11 +640,13 @@ def _append_experiment_summary(
         "width",
         "dropout",
         "stage_depths",
+        "stem_stride",
+        "reparameterize_depthwise",
         "classification_head",
         "label_smoothing",
         "logit_scale",
         "angular_margin",
-        "margin_warmup_epochs",
+        "margin_warmup_ratio",
         "epochs",
         "image_size",
         "top1",
@@ -662,7 +689,11 @@ def _append_experiment_summary(
             existing_fields = reader.fieldnames or []
         if existing_fields != fields:
             with summary_path.open("w", newline="", encoding="utf-8") as file:
-                writer = csv.DictWriter(file, fieldnames=fields)
+                writer = csv.DictWriter(
+                    file,
+                    fieldnames=fields,
+                    extrasaction="ignore",
+                )
                 writer.writeheader()
                 writer.writerows(existing_rows)
     write_header = not summary_path.exists()
@@ -680,11 +711,13 @@ def _append_experiment_summary(
                 "width": config.width,
                 "dropout": config.dropout,
                 "stage_depths": ",".join(map(str, config.stage_depths)),
+                "stem_stride": config.stem_stride,
+                "reparameterize_depthwise": config.reparameterize_depthwise,
                 "classification_head": config.classification_head,
                 "label_smoothing": config.label_smoothing,
                 "logit_scale": config.logit_scale,
                 "angular_margin": config.angular_margin,
-                "margin_warmup_epochs": config.margin_warmup_epochs,
+                "margin_warmup_ratio": config.margin_warmup_ratio,
                 "epochs": config.epochs,
                 "image_size": config.image_size,
                 "top1": metrics["top1"],

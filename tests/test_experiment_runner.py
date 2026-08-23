@@ -34,20 +34,25 @@ class ExperimentRunnerTests(unittest.TestCase):
                     "--set",
                     "stage_depths=[1, 2, 3]",
                     "--variant",
-                    '{"name":"black","args":{"input_polarity":"black_on_white"}}',
+                    '{"name":"cosface","args":{"classification_head":"cosface"}}',
                     "--variant",
-                    '{"name":"white","args":{"input_polarity":"white_on_black"}}',
+                    '{"name":"arcface","args":{"classification_head":"arcface"}}',
                 ]
             )
             spec = load_experiment_spec(arguments, root)
             jobs = build_jobs(spec)
         self.assertEqual(
             [job.key for job in jobs],
-            ["black/seed-7", "black/seed-17", "white/seed-7", "white/seed-17"],
+            [
+                "cosface/seed-7",
+                "cosface/seed-17",
+                "arcface/seed-7",
+                "arcface/seed-17",
+            ],
         )
         self.assertEqual(jobs[0].train_args["stage_depths"], [1, 2, 3])
-        self.assertIn("--input-polarity", jobs[-1].command)
-        self.assertIn("white_on_black", jobs[-1].command)
+        self.assertIn("--classification-head", jobs[-1].command)
+        self.assertIn("arcface", jobs[-1].command)
 
     def test_dry_run_validates_commands_and_writes_plan_without_training(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

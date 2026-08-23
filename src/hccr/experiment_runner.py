@@ -348,6 +348,8 @@ def _model_from_run(
         "in_channels",
         "width",
         "stage_depths",
+        "stem_stride",
+        "reparameterize_depthwise",
         "dropout",
         "classification_head",
         "logit_scale",
