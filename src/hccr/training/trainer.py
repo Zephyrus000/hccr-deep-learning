@@ -67,7 +67,12 @@ def train_epoch(
             total_loss += loss.item() * targets.numel()
             total_samples += targets.numel()
             loss_values.append(loss.item())
-            for encoded in metadata.get("applied_augmentations", ()):
+            encoded_augmentations = (
+                metadata.get("applied_augmentations", ())
+                if isinstance(metadata, dict)
+                else metadata
+            )
+            for encoded in encoded_augmentations:
                 for augmentation in filter(None, encoded.split(",")):
                     augmentation_counts[augmentation] = (
                         augmentation_counts.get(augmentation, 0) + 1

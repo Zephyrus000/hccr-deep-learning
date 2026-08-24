@@ -17,7 +17,9 @@ class BootstrapTests(unittest.TestCase):
         config = load_yaml(Path("configs/data/default.yaml"))
         data = DataConfig(**config)
         self.assertEqual(data.image_size, 64)
-        self.assertEqual(ModelConfig().num_classes, 7186)
+        model = ModelConfig()
+        self.assertEqual(model.name, "efficient_hccr")
+        self.assertEqual(model.num_classes, 7186)
 
     def test_cli_scaffold_accepts_predict(self) -> None:
         self.assertEqual(main(["predict"]), 0)

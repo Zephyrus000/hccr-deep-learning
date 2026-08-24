@@ -51,6 +51,13 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument(
+        "--dataset-backend",
+        choices=("auto", "filesystem", "lmdb"),
+        default="auto",
+        help="Use images.lmdb automatically when present, or require a backend.",
+    )
+    parser.add_argument("--lmdb-path", type=Path)
+    parser.add_argument(
         "--dataloader-start-method",
         choices=("auto", "spawn"),
         default="auto",
@@ -105,6 +112,8 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         device=arguments.device,
         seed=arguments.seed,
         num_workers=arguments.num_workers,
+        dataset_backend=arguments.dataset_backend,
+        lmdb_path=arguments.lmdb_path,
         dataloader_start_method=arguments.dataloader_start_method,
         prefetch_factor=arguments.prefetch_factor,
         persistent_workers=arguments.persistent_workers,

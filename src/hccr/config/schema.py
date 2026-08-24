@@ -15,7 +15,7 @@ class DataConfig:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    name: str = "resnet18"
+    name: str = "efficient_hccr"
     num_classes: int = 7186
     in_channels: int = 1
 

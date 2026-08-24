@@ -17,6 +17,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+  "lmdb>=1.5",
   "matplotlib>=3.9",
   "Pillow>=10.0",
   "PyYAML>=6.0",

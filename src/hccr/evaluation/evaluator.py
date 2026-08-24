@@ -8,6 +8,7 @@ from pathlib import Path
 
 import torch
 from torch import nn
+from torch.utils.data import Subset
 
 from hccr.evaluation.diagnostics import (
     StreamingValidationDiagnostics,
@@ -53,17 +54,7 @@ def evaluate(
         )
         if diagnostics is None:
             continue
-        rows = [
-            {
-                key: (
-                    value[index].item()
-                    if isinstance(value[index], torch.Tensor)
-                    else value[index]
-                )
-                for key, value in metadata.items()
-            }
-            for index in range(len(targets))
-        ]
+        rows = _diagnostic_rows(loader, metadata, len(targets))
         diagnostics.update(logits, targets, rows)
     if total_samples == 0:
         raise ValueError("evaluation loader produced no samples")
@@ -75,3 +66,26 @@ def evaluate(
     if diagnostics is not None:
         metrics.update(diagnostics.write())
     return metrics
+
+
+def _diagnostic_rows(loader, metadata, batch_size: int) -> list[dict[str, str]]:
+    if isinstance(metadata, Mapping):
+        return [
+            {
+                key: (
+                    value[index].item()
+                    if isinstance(value[index], torch.Tensor)
+                    else value[index]
+                )
+                for key, value in metadata.items()
+            }
+            for index in range(batch_size)
+        ]
+    indices = metadata.tolist() if isinstance(metadata, torch.Tensor) else metadata
+    dataset = loader.dataset
+    while isinstance(dataset, Subset):
+        dataset = dataset.dataset
+    metadata_for_index = getattr(dataset, "metadata_for_index", None)
+    if metadata_for_index is None:
+        raise TypeError("compact evaluation metadata requires metadata_for_index")
+    return [metadata_for_index(int(index)) for index in indices]

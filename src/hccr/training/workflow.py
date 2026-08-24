@@ -12,7 +12,6 @@ from random import seed as random_seed
 from random import setstate as restore_random_state
 
 import torch
-from PIL import Image
 from torch.utils.data import DataLoader, Subset
 
 from hccr.data.dataset import HCCRDataset, select_class_subset
@@ -65,6 +64,8 @@ class TrainingConfig:
     device: str = "auto"
     seed: int = 7
     num_workers: int = 0
+    dataset_backend: str = "auto"
+    lmdb_path: Path | None = None
     dataloader_start_method: str = "auto"
     prefetch_factor: int = 1
     persistent_workers: bool = True
@@ -119,6 +120,9 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         "train",
         train_transform,
         class_id_map,
+        storage_backend=config.dataset_backend,
+        lmdb_path=config.lmdb_path,
+        metadata_mode="augmentations",
     )
     training_class_support = _training_class_support(train_set)
     valid_set = HCCRDataset(
@@ -126,8 +130,16 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         "validation",
         EvalPreprocessor(config.image_size),
         class_id_map,
+        storage_backend=config.dataset_backend,
+        lmdb_path=config.lmdb_path,
+        metadata_mode="index",
     )
-    data_root = train_set.root
+    data_root = (
+        valid_set.root
+        if valid_set.rows
+        and (valid_set.root / valid_set.rows[0]["source_file"]).is_file()
+        else None
+    )
     if class_id_map is not None:
         write_json(output_dir / "class_subset.json", {"class_id_map": class_id_map})
     _write_label_mapping(output_dir, config.manifest_path, class_id_map)
@@ -165,6 +177,9 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 "train",
                 EvalPreprocessor(config.image_size),
                 class_id_map,
+                storage_backend=config.dataset_backend,
+                lmdb_path=config.lmdb_path,
+                metadata_mode="index",
             ),
             range(len(train_set)),
         )
@@ -199,6 +214,9 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             "train",
             EvalPreprocessor(config.image_size),
             class_id_map,
+            storage_backend=config.dataset_backend,
+            lmdb_path=config.lmdb_path,
+            metadata_mode="index",
         )
         if config.max_train_samples is not None:
             calibration_set = Subset(
@@ -474,6 +492,8 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("bn_recalibration_batches must be non-negative")
     if config.num_workers < 0:
         raise ValueError("num_workers must be non-negative")
+    if config.dataset_backend not in {"auto", "filesystem", "lmdb"}:
+        raise ValueError("dataset_backend must be one of: auto, filesystem, lmdb")
     if config.dataloader_start_method not in {"auto", "spawn"}:
         raise ValueError("dataloader_start_method must be one of: auto, spawn")
     if config.prefetch_factor < 1:
@@ -578,9 +598,8 @@ def _save_preprocessing_gallery(
             break
     images, labels = [], []
     for label, row in rows_by_label.items():
-        with Image.open(dataset.root / row["source_file"]) as image:
-            images.append(image.convert("L"))
-            labels.append(_unicode_codepoint(label))
+        images.append(dataset.load_image(row))
+        labels.append(_unicode_codepoint(label))
     if images:
         save_gallery(
             images,

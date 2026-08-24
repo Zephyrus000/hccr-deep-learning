@@ -12,6 +12,8 @@ training.
 | `read_manifest` | Read a UTF-8 CSV manifest and verify its required columns. |
 | `audit_manifest` / `ManifestAudit` | Validate unique samples/files, splits, class-label consistency, and writer overlap. |
 | `HCCRDataset` | Load one manifest split and return normalized grayscale tensors. |
+| `build_lmdb_image_store` | Pack encoded images into one random-read-optimized LMDB file. |
+| `LMDBImageStore` | Lazily open a read-only LMDB reader in each DataLoader process. |
 | `select_class_subset` | Select original class IDs deterministically and remap them to a compact range. |
 | `iter_folder_samples` / `FolderSample` | Enumerate sorted `<unicode-label>/<image>` exports with stable sample IDs. |
 | `WriterDisjointSplitter` | Select complete writer groups for validation without image-level leakage. |
@@ -29,9 +31,22 @@ The required columns are:
 | `class_id` | Original integer class identifier. |
 | `split` | `train`, `validation`, or `test`. |
 
-`HCCRDataset` filters rows by split and resolves `source_file` under `data/`,
-`data/raw/`, or the corresponding manifest-relative fallback. A missing first
-sample produces a clear `FileNotFoundError` instead of silently changing roots.
+`HCCRDataset` filters rows by split. With the default `storage_backend="auto"`,
+it uses `images.lmdb` next to the manifest when available and otherwise resolves
+`source_file` under `data/`, `data/raw/`, or the manifest-relative fallback.
+Use `storage_backend="lmdb"` in long runs to fail fast instead of silently
+falling back to small-file reads.
+
+Build the store once after freezing the manifest:
+
+```bash
+python scripts/build_lmdb_dataset.py \
+  --manifest data/processed/casia_hwdb/manifest.csv
+```
+
+The store preserves the original encoded image bytes and validates the manifest
+SHA-256 before reading. Each worker opens its own lazy read-only transaction;
+the environment object is never pickled into spawned workers.
 
 ## Dataset output
 
@@ -53,7 +68,13 @@ The returned tuple is:
 
 - `image`: float tensor `[1, H, W]` scaled to `[0, 1]`.
 - `target`: original class ID, or its compact subset index.
-- `metadata`: a copy of the manifest row plus `applied_augmentations`.
+- `metadata`: controlled by `metadata_mode`: the full manifest row (default), a
+  compact augmentation string for training, or an integer row index for
+  validation diagnostics.
+
+The training workflow selects compact modes automatically, avoiding repeated
+IPC serialization of string dictionaries. Tensor conversion uses torchvision
+v2's optimized `to_image`/`to_dtype` path.
 
 For comparable subset experiments, keep `max_classes` and the subset seed
 identical across every candidate. Persist the returned mapping with the run so

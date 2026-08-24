@@ -50,9 +50,9 @@ transform = TrainPreprocessor(image_size=64, blur_probability=0.1)
 augmented = transform(pil_image)
 ```
 
-The current transform writes an empty `applied_augmentations` tuple into Pillow
-metadata; `HCCRDataset` propagates that field as a string for a stable batch
-metadata contract. Do not use the training transform for validation or
+The current transform writes the transforms actually applied to each sample into
+the Pillow metadata; `HCCRDataset` propagates that field as a string for a stable
+batch metadata contract. Do not use the training transform for validation or
 inference.
 
 Polarity switching, Otsu/median filtering, morphology, elastic deformation,

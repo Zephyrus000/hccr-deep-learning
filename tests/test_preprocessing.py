@@ -30,6 +30,8 @@ class PreprocessingTests(unittest.TestCase):
         blurred = TrainPreprocessor(**options, blur_probability=1.0)(self.image)
         self.assertEqual(sharp.size, (32, 32))
         self.assertNotEqual(sharp.tobytes(), blurred.tobytes())
+        self.assertEqual(sharp.info["applied_augmentations"], ())
+        self.assertEqual(blurred.info["applied_augmentations"], ("gaussian_blur",))
 
     def test_eval_preprocessing_is_deterministic(self) -> None:
         first = EvalPreprocessor(image_size=32)(self.image)
@@ -70,7 +72,7 @@ class PreprocessingTests(unittest.TestCase):
         )
         transformed = transform(self.image)
         self.assertEqual(transformed.size, (32, 32))
-        self.assertEqual(transformed.info["applied_augmentations"], ())
+        self.assertEqual(transformed.info["applied_augmentations"], ("scale",))
 
     def test_gallery_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

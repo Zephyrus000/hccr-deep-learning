@@ -138,6 +138,17 @@ Generated files include `manifest.csv`, `labels.json`, `audit_report.json`, and
 | `class_id` | Integer class identifier. |
 | `split` | `train`, `validation`, or `test`. |
 
+Pack the frozen dataset into a single LMDB file before large training runs:
+
+```bash
+python scripts/build_lmdb_dataset.py \
+  --manifest data/processed/casia_hwdb/manifest.csv
+```
+
+This creates `data/processed/casia_hwdb/images.lmdb`. Training discovers it
+automatically; pass `--dataset-backend lmdb` for full-class runs so a missing or
+stale store fails fast. Use `--lmdb-path` only when the store is elsewhere.
+
 Do not commit the raw dataset, generated manifests, checkpoints, or local
 experiment output.
 
@@ -183,6 +194,8 @@ Use `hccr train --help` for the complete option list. Important controls are:
 | `--max-classes` | Deterministic fast-benchmark class subset. |
 | `--scheduler` | `none`, `cosine`, or validation-based `plateau`. |
 | `--num-workers` | DataLoader concurrency. |
+| `--dataset-backend` | `auto`, direct `filesystem`, or required `lmdb` reads. |
+| `--lmdb-path` | Optional non-default LMDB file path. |
 | `--bn-recalibration-batches` | Post-training BN-statistics recalibration. |
 | `--device` | `auto`, `cpu`, or `cuda`. |
 

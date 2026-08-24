@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isclose
 from random import uniform
 
 from PIL import Image, ImageFilter
@@ -39,8 +40,11 @@ class TrainPreprocessor(EvalPreprocessor):
 
     def __call__(self, image: Image.Image) -> Image.Image:
         prepared = super().__call__(image)
+        applied_augmentations: list[str] = []
         scale = uniform(self.scale_min, self.scale_max)
         scaled_size = round(self.image_size * scale)
+        if scaled_size != self.image_size:
+            applied_augmentations.append("scale")
         resized = prepared.resize((scaled_size, scaled_size), Image.Resampling.BILINEAR)
         canvas = Image.new("L", (self.image_size, self.image_size), color=255)
         offset = (
@@ -52,13 +56,19 @@ class TrainPreprocessor(EvalPreprocessor):
             uniform(-self.translate_ratio, self.translate_ratio) * self.image_size
             for _ in range(2)
         )
+        if any(not isclose(offset, 0.0) for offset in translated):
+            applied_augmentations.append("translation")
+        rotation = uniform(-self.rotation_degrees, self.rotation_degrees)
+        if not isclose(rotation, 0.0):
+            applied_augmentations.append("rotation")
         transformed = canvas.rotate(
-            uniform(-self.rotation_degrees, self.rotation_degrees),
+            rotation,
             resample=Image.Resampling.BILINEAR,
             translate=translated,
             fillcolor=255,
         )
         if uniform(0, 1) < self.blur_probability:
             transformed = transformed.filter(ImageFilter.GaussianBlur(radius=0.5))
-        transformed.info["applied_augmentations"] = ()
+            applied_augmentations.append("gaussian_blur")
+        transformed.info["applied_augmentations"] = tuple(applied_augmentations)
         return transformed
