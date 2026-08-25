@@ -5,15 +5,67 @@ import pickle
 import tempfile
 import unittest
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader
 
-from hccr.data import HCCRDataset, build_lmdb_image_store, read_manifest
+from hccr.data import (
+    HCCRDataset,
+    LMDBImageStore,
+    build_lmdb_image_store,
+    build_lmdb_image_store_from_zip,
+    read_manifest,
+)
 
 
 class LMDBDatasetTests(unittest.TestCase):
+    def test_builds_directly_from_zip_with_custom_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = self._write_fixture(root)
+            rows = read_manifest(manifest)
+            archive_path = root / "raw.zip"
+            with ZipFile(archive_path, "w", ZIP_DEFLATED) as archive:
+                for row in rows:
+                    archive.write(
+                        root / row["source_file"],
+                        f"custom/raw/{row['source_file']}",
+                    )
+            lmdb_path = root / "from-zip.lmdb"
+
+            report = build_lmdb_image_store_from_zip(
+                manifest,
+                rows,
+                archive_path,
+                lmdb_path,
+                zip_prefix="/custom\\raw//",
+            )
+
+            self.assertEqual(report["source_kind"], "zip")
+            self.assertEqual(report["source_prefix"], "custom/raw")
+            store = LMDBImageStore(lmdb_path)
+            self.assertEqual(store.read_image("a").getpixel((0, 0)), 32)
+            self.assertEqual(store.read_image("b").getpixel((0, 0)), 224)
+            store.close()
+
+    def test_zip_prefix_rejects_parent_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = self._write_fixture(root)
+            archive_path = root / "raw.zip"
+            with ZipFile(archive_path, "w"):
+                pass
+            with self.assertRaisesRegex(ValueError, "must not contain"):
+                build_lmdb_image_store_from_zip(
+                    manifest,
+                    read_manifest(manifest),
+                    archive_path,
+                    root / "images.lmdb",
+                    zip_prefix="../raw",
+                )
+
     def test_lmdb_matches_filesystem_and_survives_spawn_pickle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

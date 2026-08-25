@@ -126,6 +126,23 @@ python scripts/build_dataset_manifest.py \
   --output-dir data/processed/casia_hwdb
 ```
 
+If only the raw ZIP is available, generate the same artifacts without
+extracting it:
+
+```bash
+python scripts/build_dataset_manifest.py \
+  --source-zip raw.zip \
+  --zip-prefix raw \
+  --zip-train-dir CASIA-HWDB_Train/Train \
+  --zip-test-dir CASIA-HWDB_Test/Test \
+  --output-dir data/processed/casia_hwdb
+```
+
+The ZIP prefix and both partition directories are configurable. Generated
+`source_file` values are relative to `--zip-prefix`, so the resulting manifest
+can be passed directly to `build_lmdb_dataset.py --source-zip ...` with the same
+prefix.
+
 Generated files include `manifest.csv`, `labels.json`, `audit_report.json`, and
 `invalid_images.json`. The training pipeline requires these manifest columns:
 
@@ -144,6 +161,10 @@ Pack the frozen dataset into a single LMDB file before large training runs:
 python scripts/build_lmdb_dataset.py \
   --manifest data/processed/casia_hwdb/manifest.csv
 ```
+
+If the raw dataset is a ZIP, avoid extracting millions of files by adding
+`--source-zip raw.zip`. Use `--zip-prefix raw` (or another directory name) when
+archive members have a path prefix not present in manifest `source_file` values.
 
 This creates `data/processed/casia_hwdb/images.lmdb`. Training discovers it
 automatically; pass `--dataset-backend lmdb` for full-class runs so a missing or

@@ -31,6 +31,18 @@ The required columns are:
 | `class_id` | Original integer class identifier. |
 | `split` | `train`, `validation`, or `test`. |
 
+When no manifest exists and the source is archived, audit and generate it
+directly from ZIP:
+
+```bash
+python scripts/build_dataset_manifest.py \
+  --source-zip raw.zip \
+  --zip-prefix raw \
+  --zip-train-dir CASIA-HWDB_Train/Train \
+  --zip-test-dir CASIA-HWDB_Test/Test \
+  --output-dir data/processed/casia_hwdb
+```
+
 `HCCRDataset` filters rows by split. With the default `storage_backend="auto"`,
 it uses `images.lmdb` next to the manifest when available and otherwise resolves
 `source_file` under `data/`, `data/raw/`, or the manifest-relative fallback.
@@ -43,6 +55,19 @@ Build the store once after freezing the manifest:
 python scripts/build_lmdb_dataset.py \
   --manifest data/processed/casia_hwdb/manifest.csv
 ```
+
+When the raw dataset is already archived, stream it directly into LMDB without
+extracting millions of small files:
+
+```bash
+python scripts/build_lmdb_dataset.py \
+  --manifest data/processed/casia_hwdb/manifest.csv \
+  --source-zip raw.zip \
+  --zip-prefix raw
+```
+
+`--zip-prefix` is optional and accepts any archive directory prefix; use an
+empty prefix when ZIP members already match each manifest `source_file`.
 
 The store preserves the original encoded image bytes and validates the manifest
 SHA-256 before reading. Each worker opens its own lazy read-only transaction;

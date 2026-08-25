@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zipfile import ZipFile
 
 import lmdb
 from PIL import Image
@@ -130,12 +132,75 @@ def build_lmdb_image_store(
     show_progress: bool = False,
 ) -> dict[str, Any]:
     """Pack encoded source images into one atomic single-file LMDB dataset."""
+    resolved_map_size = map_size or _estimate_map_size(
+        rows, lambda row: _filesystem_image_path(source_root, row).stat().st_size
+    )
+    return _build_lmdb_image_store(
+        manifest_path,
+        rows,
+        output_path,
+        lambda row: _read_filesystem_image(source_root, row),
+        resolved_map_size,
+        commit_interval,
+        show_progress,
+        source_kind="filesystem",
+    )
+
+
+def build_lmdb_image_store_from_zip(
+    manifest_path: Path,
+    rows: list[dict[str, str]],
+    source_zip: Path,
+    output_path: Path,
+    *,
+    zip_prefix: str = "",
+    map_size: int | None = None,
+    commit_interval: int = 10_000,
+    show_progress: bool = False,
+) -> dict[str, Any]:
+    """Pack images directly from a ZIP archive without extracting small files."""
+    source_zip = Path(source_zip)
+    if not source_zip.is_file():
+        raise FileNotFoundError(f"source ZIP does not exist: {source_zip}")
+    normalized_prefix = _normalize_zip_path(zip_prefix, allow_empty=True)
+    with ZipFile(source_zip) as archive:
+
+        def member_for_row(row: dict[str, str]) -> str:
+            return _zip_member_name(row["source_file"], normalized_prefix)
+
+        resolved_map_size = map_size or _estimate_map_size(
+            rows, lambda row: archive.getinfo(member_for_row(row)).file_size
+        )
+        return _build_lmdb_image_store(
+            manifest_path,
+            rows,
+            output_path,
+            lambda row: _read_zip_image(archive, member_for_row(row), zip_prefix),
+            resolved_map_size,
+            commit_interval,
+            show_progress,
+            source_kind="zip",
+            source_prefix=normalized_prefix,
+        )
+
+
+def _build_lmdb_image_store(
+    manifest_path: Path,
+    rows: list[dict[str, str]],
+    output_path: Path,
+    read_payload: Callable[[dict[str, str]], bytes],
+    resolved_map_size: int,
+    commit_interval: int,
+    show_progress: bool,
+    *,
+    source_kind: str,
+    source_prefix: str = "",
+) -> dict[str, Any]:
     if commit_interval < 1:
         raise ValueError("commit_interval must be positive")
     output_path = Path(output_path)
     if output_path.exists():
         raise FileExistsError(f"refusing to overwrite LMDB dataset: {output_path}")
-    resolved_map_size = map_size or _estimate_map_size(rows, source_root)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = output_path.with_name(f"{output_path.name}.building")
     temporary_lock = Path(f"{temporary_path}-lock")
@@ -160,13 +225,7 @@ def build_lmdb_image_store(
             dynamic_ncols=True,
         )
         for index, row in enumerate(progress, start=1):
-            image_path = source_root / row["source_file"]
-            try:
-                payload = image_path.read_bytes()
-            except FileNotFoundError as error:
-                raise FileNotFoundError(
-                    f"manifest image is missing: {image_path}"
-                ) from error
+            payload = read_payload(row)
             source_bytes += len(payload)
             if not transaction.put(
                 image_key(row["sample_id"]), payload, overwrite=False
@@ -180,6 +239,8 @@ def build_lmdb_image_store(
             "manifest_digest": manifest_digest(manifest_path),
             "sample_count": len(rows),
             "source_bytes": source_bytes,
+            "source_kind": source_kind,
+            "source_prefix": source_prefix,
             "value_encoding": "original_encoded_image_bytes",
         }
         transaction.put(METADATA_KEY, json.dumps(metadata).encode("utf-8"))
@@ -203,21 +264,59 @@ def build_lmdb_image_store(
     return {**metadata, "path": str(output_path), "map_size": resolved_map_size}
 
 
-def _estimate_map_size(rows: list[dict[str, str]], source_root: Path) -> int:
+def _estimate_map_size(
+    rows: list[dict[str, str]], size_for_row: Callable[[dict[str, str]], int]
+) -> int:
     if not rows:
         return 64 * 1024**2
     sample_count = min(10_000, len(rows))
     sample_bytes = 0
     for row in rows[:sample_count]:
-        image_path = source_root / row["source_file"]
         try:
-            sample_bytes += image_path.stat().st_size
-        except FileNotFoundError as error:
+            sample_bytes += size_for_row(row)
+        except (FileNotFoundError, KeyError) as error:
             raise FileNotFoundError(
-                f"manifest image is missing: {image_path}"
+                f"manifest image is missing: {row['source_file']}"
             ) from error
     average_bytes = sample_bytes / sample_count
     return max(
         64 * 1024**2,
         int((average_bytes + 512) * len(rows) * 1.5),
     )
+
+
+def _filesystem_image_path(source_root: Path, row: dict[str, str]) -> Path:
+    return source_root / row["source_file"]
+
+
+def _read_filesystem_image(source_root: Path, row: dict[str, str]) -> bytes:
+    image_path = _filesystem_image_path(source_root, row)
+    try:
+        return image_path.read_bytes()
+    except FileNotFoundError as error:
+        raise FileNotFoundError(f"manifest image is missing: {image_path}") from error
+
+
+def _normalize_zip_path(value: str, *, allow_empty: bool) -> str:
+    normalized = value.replace("\\", "/").strip("/")
+    parts = [part for part in normalized.split("/") if part not in {"", "."}]
+    if any(part == ".." for part in parts):
+        raise ValueError(f"ZIP path must not contain '..': {value}")
+    result = "/".join(parts)
+    if not result and not allow_empty:
+        raise ValueError("manifest source_file must not be empty")
+    return result
+
+
+def _zip_member_name(source_file: str, zip_prefix: str) -> str:
+    relative_path = _normalize_zip_path(source_file, allow_empty=False)
+    return f"{zip_prefix}/{relative_path}" if zip_prefix else relative_path
+
+
+def _read_zip_image(archive: ZipFile, member: str, original_prefix: str) -> bytes:
+    try:
+        return archive.read(member)
+    except KeyError as error:
+        raise FileNotFoundError(
+            f"ZIP member is missing: {member} (zip_prefix={original_prefix!r})"
+        ) from error

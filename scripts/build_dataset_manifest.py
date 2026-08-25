@@ -1,4 +1,4 @@
-"""Audit the folder-based CASIA export and create its frozen CSV manifests."""
+"""Audit a folder or ZIP-based CASIA export and create frozen CSV manifests."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ import json
 import math
 import sys
 import zlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import BinaryIO
+from zipfile import BadZipFile, ZipFile
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MANIFEST_COLUMNS = (
@@ -50,9 +52,25 @@ class AuditSummary:
     test_images: int = 0
 
 
+@dataclass(frozen=True)
+class ZipImageMember:
+    archive_name: str
+    source_file: str
+
+    @property
+    def name(self) -> str:
+        return PurePosixPath(self.source_file).name
+
+
 def inspect_png(path: Path) -> ImageInfo:
     """Validate PNG signature, chunk CRCs, IHDR, IDAT, and IEND."""
     with path.open("rb") as image:
+        return inspect_png_stream(image)
+
+
+def inspect_png_stream(image: BinaryIO) -> ImageInfo:
+    """Validate a PNG from a file or archive member stream."""
+    try:
         if image.read(8) != PNG_SIGNATURE:
             raise PngValidationError("invalid PNG signature")
 
@@ -109,6 +127,8 @@ def inspect_png(path: Path) -> ImageInfo:
                 if image.read(1):
                     raise PngValidationError("trailing bytes after IEND")
                 return ImageInfo(width=width, height=height)
+    except zlib.error as error:
+        raise PngValidationError("invalid PNG image data") from error
 
 
 def inspect_path(path: Path) -> tuple[Path, ImageInfo | None, str | None]:
@@ -117,6 +137,69 @@ def inspect_path(path: Path) -> tuple[Path, ImageInfo | None, str | None]:
         return path, inspect_png(path), None
     except (OSError, PngValidationError) as error:
         return path, None, str(error)
+
+
+def inspect_zip_member(
+    archive: ZipFile, member: ZipImageMember
+) -> tuple[ZipImageMember, ImageInfo | None, str | None]:
+    """Inspect one ZIP member and return failures as audit data."""
+    try:
+        with archive.open(member.archive_name) as image:
+            return member, inspect_png_stream(image), None
+    except (BadZipFile, KeyError, OSError, PngValidationError) as error:
+        return member, None, str(error)
+
+
+def zip_partition_members(
+    archive: ZipFile, zip_prefix: str, partition_directory: str
+) -> dict[str, list[ZipImageMember]]:
+    """Group direct `<label>/<image>` members under an archive partition."""
+    normalized_prefix = _normalize_archive_path(zip_prefix, allow_empty=True)
+    normalized_partition = _normalize_archive_path(
+        partition_directory, allow_empty=False
+    )
+    partition_root = (
+        f"{normalized_prefix}/{normalized_partition}"
+        if normalized_prefix
+        else normalized_partition
+    )
+    member_prefix = f"{partition_root}/"
+    source_prefix = f"{normalized_prefix}/" if normalized_prefix else ""
+    members: dict[str, list[ZipImageMember]] = {}
+    for info in archive.infolist():
+        archive_name = info.filename
+        normalized_name = archive_name.replace("\\", "/").lstrip("/")
+        if info.is_dir() or not normalized_name.startswith(member_prefix):
+            continue
+        relative_partition_path = normalized_name[len(member_prefix) :]
+        parts = relative_partition_path.split("/")
+        if len(parts) != 2 or not parts[1]:
+            continue
+        label = parts[0]
+        if len(label) != 1:
+            raise ValueError(
+                "label directory is not one Unicode character: " f"{normalized_name}"
+            )
+        source_file = normalized_name.removeprefix(source_prefix)
+        members.setdefault(label, []).append(
+            ZipImageMember(archive_name=archive_name, source_file=source_file)
+        )
+    if not members:
+        raise FileNotFoundError(f"no images found under ZIP path: {partition_root}")
+    for files in members.values():
+        files.sort(key=lambda member: member.source_file)
+    return members
+
+
+def _normalize_archive_path(value: str, *, allow_empty: bool) -> str:
+    normalized = value.replace("\\", "/").strip("/")
+    parts = [part for part in normalized.split("/") if part not in {"", "."}]
+    if any(part == ".." for part in parts):
+        raise ValueError(f"ZIP path must not contain '..': {value}")
+    result = "/".join(parts)
+    if not result and not allow_empty:
+        raise ValueError("ZIP partition directory must not be empty")
+    return result
 
 
 def labels_in(directory: Path) -> list[str]:
@@ -224,8 +307,101 @@ def audit_partition(
     return summary
 
 
-def parse_args() -> argparse.Namespace:
+def audit_zip_partition(
+    archive: ZipFile,
+    members_by_label: dict[str, list[ZipImageMember]],
+    split: str,
+    class_ids: dict[str, int],
+    writer: csv.DictWriter,
+    invalid_rows: list[dict[str, str]],
+    digest: object,
+    seed: int,
+    validation_fraction: float,
+    executor: Executor,
+) -> AuditSummary:
+    """Audit a train/test partition directly inside a ZIP archive."""
+    summary = AuditSummary(split=split)
+    for label in sorted(class_ids):
+        members = members_by_label.get(label, [])
+        if not members:
+            invalid_rows.append({"path": f"ZIP label {label}", "reason": "empty class"})
+            continue
+        validation = (
+            {
+                path.as_posix()
+                for path in validation_files(
+                    [PurePosixPath(member.source_file) for member in members],
+                    label,
+                    seed,
+                    validation_fraction,
+                )
+            }
+            if split == "train"
+            else set()
+        )
+        inspected = executor.map(
+            lambda member: inspect_zip_member(archive, member), members
+        )
+        for member, image, error in inspected:
+            summary.files_seen += 1
+            if error is not None:
+                summary.invalid_images += 1
+                invalid_rows.append({"path": member.archive_name, "reason": error})
+                continue
+            if image is None:
+                raise RuntimeError("inspection result did not contain an image")
+
+            final_split = "validation" if member.source_file in validation else split
+            row = {
+                "sample_id": sample_id(member.source_file),
+                "source_file": member.source_file,
+                "record_offset": "",
+                "writer_id": "",
+                "raw_label": label,
+                "unicode_label": label,
+                "class_id": class_ids[label],
+                "width": image.width,
+                "height": image.height,
+                "split": final_split,
+            }
+            writer.writerow(row)
+            payload = json.dumps(row, ensure_ascii=False, sort_keys=True).encode(
+                "utf-8"
+            )
+            digest.update(payload)  # type: ignore[attr-defined]
+            digest.update(b"\n")  # type: ignore[attr-defined]
+            summary.valid_images += 1
+            if final_split == "train":
+                summary.train_images += 1
+            elif final_split == "validation":
+                summary.validation_images += 1
+            else:
+                summary.test_images += 1
+    return summary
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--source-zip",
+        type=Path,
+        help="Audit images directly from a ZIP instead of extracted folders.",
+    )
+    parser.add_argument(
+        "--zip-prefix",
+        default="",
+        help="Optional archive prefix before ZIP train/test directories.",
+    )
+    parser.add_argument(
+        "--zip-train-dir",
+        default="CASIA-HWDB_Train/Train",
+        help="Train directory relative to --zip-prefix.",
+    )
+    parser.add_argument(
+        "--zip-test-dir",
+        default="CASIA-HWDB_Test/Test",
+        help="Test directory relative to --zip-prefix.",
+    )
     parser.add_argument("--data-root", type=Path, default=Path("data/raw"))
     parser.add_argument(
         "--train-dir", type=Path, default=Path("data/raw/CASIA-HWDB_Train/Train")
@@ -244,91 +420,149 @@ def parse_args() -> argparse.Namespace:
         default=16,
         help="Number of concurrent PNG inspections (default: 16).",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     if not 0 < args.validation_fraction < 1:
         raise ValueError("--validation-fraction must be between 0 and 1")
     if args.workers < 1:
         raise ValueError("--workers must be at least 1")
-    if not args.train_dir.is_dir() or not args.test_dir.is_dir():
-        raise FileNotFoundError("train-dir and test-dir must both exist")
+    if args.zip_prefix and args.source_zip is None:
+        raise ValueError("--zip-prefix requires --source-zip")
 
-    train_labels = labels_in(args.train_dir)
-    test_labels = labels_in(args.test_dir)
-    if train_labels != test_labels:
-        raise ValueError(
-            "Train and Test label sets differ; refusing to create a manifest"
+    archive = ZipFile(args.source_zip) if args.source_zip is not None else None
+    try:
+        if archive is not None:
+            train_members = zip_partition_members(
+                archive, args.zip_prefix, args.zip_train_dir
+            )
+            test_members = zip_partition_members(
+                archive, args.zip_prefix, args.zip_test_dir
+            )
+            train_labels = sorted(train_members)
+            test_labels = sorted(test_members)
+        else:
+            if not args.train_dir.is_dir() or not args.test_dir.is_dir():
+                raise FileNotFoundError("train-dir and test-dir must both exist")
+            train_members = test_members = None
+            train_labels = labels_in(args.train_dir)
+            test_labels = labels_in(args.test_dir)
+        if train_labels != test_labels:
+            raise ValueError(
+                "Train and Test label sets differ; refusing to create a manifest"
+            )
+
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        manifest_temp = args.output_dir / "manifest.csv.tmp"
+        manifest_path = args.output_dir / "manifest.csv"
+        invalid_path = args.output_dir / "invalid_images.json"
+        report_path = args.output_dir / "audit_report.json"
+        class_ids = {label: index for index, label in enumerate(train_labels)}
+        invalid_rows: list[dict[str, str]] = []
+        digest = hashlib.sha256()
+
+        with (
+            manifest_temp.open("w", newline="", encoding="utf-8") as handle,
+            ThreadPoolExecutor(max_workers=args.workers) as executor,
+        ):
+            writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
+            writer.writeheader()
+            if archive is not None:
+                if train_members is None or test_members is None:
+                    raise RuntimeError("ZIP partitions were not initialized")
+                train_summary = audit_zip_partition(
+                    archive,
+                    train_members,
+                    "train",
+                    class_ids,
+                    writer,
+                    invalid_rows,
+                    digest,
+                    args.seed,
+                    args.validation_fraction,
+                    executor,
+                )
+                test_summary = audit_zip_partition(
+                    archive,
+                    test_members,
+                    "test",
+                    class_ids,
+                    writer,
+                    invalid_rows,
+                    digest,
+                    args.seed,
+                    args.validation_fraction,
+                    executor,
+                )
+            else:
+                train_summary = audit_partition(
+                    args.train_dir,
+                    args.data_root,
+                    "train",
+                    class_ids,
+                    writer,
+                    invalid_rows,
+                    digest,
+                    args.seed,
+                    args.validation_fraction,
+                    executor,
+                )
+                test_summary = audit_partition(
+                    args.test_dir,
+                    args.data_root,
+                    "test",
+                    class_ids,
+                    writer,
+                    invalid_rows,
+                    digest,
+                    args.seed,
+                    args.validation_fraction,
+                    executor,
+                )
+
+        report = {
+            "schema_version": 1,
+            "seed": args.seed,
+            "validation_fraction": args.validation_fraction,
+            "writer_id_policy": "unavailable_in_source_export",
+            "source_kind": "zip" if archive is not None else "filesystem",
+            "source_prefix": (
+                _normalize_archive_path(args.zip_prefix, allow_empty=True)
+                if archive is not None
+                else ""
+            ),
+            "class_count": len(train_labels),
+            "manifest_digest": digest.hexdigest(),
+            "partitions": [asdict(train_summary), asdict(test_summary)],
+            "invalid_entry_count": len(invalid_rows),
+        }
+        invalid_path.write_text(
+            json.dumps(invalid_rows, ensure_ascii=False, indent=2) + "\n",
+            "utf-8",
         )
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    manifest_temp = args.output_dir / "manifest.csv.tmp"
-    manifest_path = args.output_dir / "manifest.csv"
-    invalid_path = args.output_dir / "invalid_images.json"
-    report_path = args.output_dir / "audit_report.json"
-    class_ids = {label: index for index, label in enumerate(train_labels)}
-    invalid_rows: list[dict[str, str]] = []
-    digest = hashlib.sha256()
-
-    with (
-        manifest_temp.open("w", newline="", encoding="utf-8") as handle,
-        ThreadPoolExecutor(max_workers=args.workers) as executor,
-    ):
-        writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
-        writer.writeheader()
-        train_summary = audit_partition(
-            args.train_dir,
-            args.data_root,
-            "train",
-            class_ids,
-            writer,
-            invalid_rows,
-            digest,
-            args.seed,
-            args.validation_fraction,
-            executor,
+        report_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", "utf-8"
         )
-        test_summary = audit_partition(
-            args.test_dir,
-            args.data_root,
-            "test",
-            class_ids,
-            writer,
-            invalid_rows,
-            digest,
-            args.seed,
-            args.validation_fraction,
-            executor,
+        if invalid_rows:
+            manifest_temp.unlink(missing_ok=True)
+            print(
+                f"Audit failed: {len(invalid_rows)} invalid entries. "
+                f"See {invalid_path}."
+            )
+            return 1
+
+        manifest_temp.replace(manifest_path)
+        write_mapping(args.output_dir / "class_mapping_full.json", train_labels)
+        write_mapping(
+            args.output_dir / "class_mapping_hccr1_100.json", train_labels[:100]
         )
-
-    report = {
-        "schema_version": 1,
-        "seed": args.seed,
-        "validation_fraction": args.validation_fraction,
-        "writer_id_policy": "unavailable_in_source_export",
-        "class_count": len(train_labels),
-        "manifest_digest": digest.hexdigest(),
-        "partitions": [asdict(train_summary), asdict(test_summary)],
-        "invalid_entry_count": len(invalid_rows),
-    }
-    invalid_path.write_text(
-        json.dumps(invalid_rows, ensure_ascii=False, indent=2) + "\n", "utf-8"
-    )
-    report_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n", "utf-8"
-    )
-    if invalid_rows:
-        manifest_temp.unlink(missing_ok=True)
-        print(f"Audit failed: {len(invalid_rows)} invalid entries. See {invalid_path}.")
-        return 1
-
-    manifest_temp.replace(manifest_path)
-    write_mapping(args.output_dir / "class_mapping_full.json", train_labels)
-    write_mapping(args.output_dir / "class_mapping_hccr1_100.json", train_labels[:100])
-    print(f"Audit passed. Manifest: {manifest_path}")
-    return 0
+        print(f"Audit passed. Manifest: {manifest_path}")
+        return 0
+    finally:
+        if archive is not None:
+            archive.close()
 
 
 if __name__ == "__main__":

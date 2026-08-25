@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import binascii
+import csv
+import json
 import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from scripts.build_dataset_manifest import (
     PngValidationError,
     inspect_png,
     validation_files,
 )
+from scripts.build_dataset_manifest import main as build_manifest
 
 from hccr.data.dataset import select_class_subset
 
@@ -34,6 +38,54 @@ def minimal_png() -> bytes:
 
 
 class DatasetManifestTests(unittest.TestCase):
+    def test_builds_manifest_directly_from_zip_with_custom_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "raw.zip"
+            with ZipFile(archive_path, "w", ZIP_DEFLATED) as archive:
+                archive.writestr("custom/payload/training/一/1.png", minimal_png())
+                archive.writestr("custom/payload/training/一/2.png", minimal_png())
+                archive.writestr("custom/payload/testing/一/3.png", minimal_png())
+            output = root / "processed"
+
+            exit_code = build_manifest(
+                [
+                    "--source-zip",
+                    str(archive_path),
+                    "--zip-prefix",
+                    "/custom\\payload//",
+                    "--zip-train-dir",
+                    "training",
+                    "--zip-test-dir",
+                    "testing",
+                    "--output-dir",
+                    str(output),
+                    "--validation-fraction",
+                    "0.5",
+                    "--workers",
+                    "2",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            with (output / "manifest.csv").open(newline="", encoding="utf-8") as file:
+                rows = list(csv.DictReader(file))
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(
+                {row["split"] for row in rows}, {"train", "validation", "test"}
+            )
+            self.assertEqual(
+                {row["source_file"] for row in rows},
+                {
+                    "training/一/1.png",
+                    "training/一/2.png",
+                    "testing/一/3.png",
+                },
+            )
+            report = json.loads((output / "audit_report.json").read_text())
+            self.assertEqual(report["source_kind"], "zip")
+            self.assertEqual(report["source_prefix"], "custom/payload")
+
     def test_class_subset_is_deterministic_and_compact(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest = Path(directory) / "manifest.csv"
