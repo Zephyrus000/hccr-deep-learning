@@ -20,6 +20,8 @@ def train_epoch(
     device: str,
     criterion: nn.Module,
     margin_multiplier: float = 1.0,
+    batch_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+    max_batches: int | None = None,
 ) -> dict[str, float]:
     model.train()
     total_loss = 0.0
@@ -33,6 +35,7 @@ def train_epoch(
     data_loading_seconds = 0.0
     forward_backward_seconds = 0.0
     previous_batch_finished = started_at
+    learning_rate_start = optimizer.param_groups[0]["lr"]
     with ArchitectureDiagnostics(model) as architecture_diagnostics:
         progress = tqdm(
             loader,
@@ -63,6 +66,8 @@ def train_epoch(
             )
             gradient_norms.append(math.sqrt(squared_norm))
             optimizer.step()
+            if batch_scheduler is not None:
+                batch_scheduler.step()
             forward_backward_seconds += time.perf_counter() - batch_started_at
             total_loss += loss.item() * targets.numel()
             total_samples += targets.numel()
@@ -83,7 +88,11 @@ def train_epoch(
                     "batch=%s loss=%.6f", batch_index, loss.item()
                 )
             previous_batch_finished = time.perf_counter()
+            if max_batches is not None and batch_index >= max_batches:
+                break
     elapsed_seconds = time.perf_counter() - started_at
+    if total_samples == 0:
+        raise ValueError("training loader produced no samples")
     return {
         "train_loss": total_loss / total_samples,
         "batch_loss_mean": sum(loss_values) / len(loss_values),
@@ -91,7 +100,9 @@ def train_epoch(
         "gradient_norm_mean": sum(gradient_norms) / len(gradient_norms),
         "gradient_norm_max": max(gradient_norms),
         "learning_rate": optimizer.param_groups[0]["lr"],
+        "learning_rate_start": learning_rate_start,
         "margin_multiplier": margin_multiplier,
+        "optimizer_steps": len(loss_values),
         "augmentation_counts": augmentation_counts,
         "augmentation_rates": {
             name: count / total_samples for name, count in augmentation_counts.items()

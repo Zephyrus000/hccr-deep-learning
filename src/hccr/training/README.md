@@ -61,15 +61,22 @@ providing argument validation and discoverable help.
    evaluate the recalibrated copy.
 8. Append one row to `experiment_summary.csv` and return best metrics.
 
-Schedulers are `none`, `cosine`, and validation-based `plateau`. CosFace and
-ArcFace margins can be warmed from zero to their configured value independently
-of label smoothing.
+Schedulers are `none`, per-optimizer-step `cosine`, and validation-based
+`plateau`. The default batch-aware plan treats batch 64 as the reference:
+larger batches receive enough physical epochs to retain the reference optimizer
+update budget, scale AdamW learning rate by square root, and use a cosine-only
+linear warm-up over the first 5% of optimizer steps. Persisted `batch_training_plan.json`,
+checkpoint metadata, curves, and `experiment_summary.csv` record both requested
+and resolved values. Set `optimizer_step_policy="configured_epochs"` only to
+reproduce legacy epoch semantics. CosFace and ArcFace margins can be warmed from
+zero to their configured value independently of label smoothing.
 
 ## Artifacts
 
 Important run files include:
 
 - `config.json`, `metadata.json`, `run.log`
+- `batch_training_plan.json` (requested/resolved update and learning-rate plan)
 - `checkpoint.pt`, `checkpoint_metadata.json`, `labels.json`
 - `metrics.json`, `curves.json`, `training_diagnostics.json`
 - `resource_profile.json`, `validation_stability.json`

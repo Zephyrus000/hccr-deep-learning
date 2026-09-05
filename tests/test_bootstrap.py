@@ -120,3 +120,26 @@ class RetainedModelCliTests(unittest.TestCase):
             ["train", "--manifest", "manifest.csv", "--dropout", "0.2"]
         )
         self.assertEqual(arguments.dropout, 0.2)
+
+
+class BatchSizeCliTests(unittest.TestCase):
+    def test_train_cli_accepts_batch_aware_training_controls(self) -> None:
+        arguments = build_parser().parse_args(
+            [
+                "train",
+                "--manifest",
+                "manifest.csv",
+                "--reference-batch-size",
+                "64",
+                "--optimizer-step-policy",
+                "reference_batch",
+                "--learning-rate-scaling",
+                "sqrt",
+                "--lr-warmup-ratio",
+                "0.1",
+            ]
+        )
+        self.assertEqual(arguments.reference_batch_size, 64)
+        self.assertEqual(arguments.optimizer_step_policy, "reference_batch")
+        self.assertEqual(arguments.learning_rate_scaling, "sqrt")
+        self.assertEqual(arguments.lr_warmup_ratio, 0.1)

@@ -54,6 +54,9 @@ class TrainingWorkflowTests(unittest.TestCase):
                     stage_depths=(1, 1, 1),
                     label_smoothing=0.05,
                     scheduler="none",
+                    reference_batch_size=2,
+                    learning_rate_scaling="none",
+                    lr_warmup_ratio=0.0,
                     early_stopping_patience=None,
                     benchmark_warmup_iterations=1,
                     benchmark_iterations=2,
@@ -78,7 +81,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertEqual(checkpoint_metadata["model"]["dropout"], 0.1)
             self.assertEqual(checkpoint_metadata["model"]["stem_stride"], 2)
             self.assertTrue(checkpoint_metadata["model"]["reparameterize_depthwise"])
-            self.assertEqual(checkpoint_metadata["schema_version"], 3)
+            self.assertEqual(checkpoint_metadata["schema_version"], 4)
             self.assertEqual(
                 checkpoint_metadata["model"]["classification_head"], "cosface"
             )
@@ -95,6 +98,19 @@ class TrainingWorkflowTests(unittest.TestCase):
                     "margin_schedule": "linear_warmup",
                     "margin_warmup_ratio": 0.2,
                     "resolved_margin_warmup_epochs": 1,
+                    "optimizer_step_policy": "reference_batch",
+                    "reference_batch_size": 2,
+                    "batch_size": 2,
+                    "configured_epochs": 1,
+                    "resolved_epochs": 1,
+                    "steps_per_epoch": 1,
+                    "reference_steps_per_epoch": 1,
+                    "total_optimizer_steps": 1,
+                    "learning_rate_scaling": "none",
+                    "base_learning_rate": 0.001,
+                    "resolved_learning_rate": 0.001,
+                    "lr_warmup_ratio": 0.0,
+                    "warmup_steps": 0,
                     "augmentation": "random_affine_and_blur",
                 },
             )
@@ -121,6 +137,7 @@ class TrainingWorkflowTests(unittest.TestCase):
                 (run_directory / "bn_recalibrated" / "validation_errors.csv").is_file()
             )
             self.assertTrue((run_directory / "labels.json").is_file())
+            self.assertTrue((run_directory / "batch_training_plan.json").is_file())
             self.assertTrue((run_directory / "preprocessing_gallery.png").is_file())
             self.assertTrue((run_directory / "augmentation_gallery.png").is_file())
             self.assertTrue((run_directory / "validation_stability.json").is_file())
@@ -170,6 +187,9 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertIn("end_to_end_latency_p95_ms", summary_header)
             self.assertIn("peak_training_cuda_memory_mib", summary_header)
             self.assertIn("margin_warmup_ratio", summary_header)
+            self.assertIn("optimizer_step_policy", summary_header)
+            self.assertIn("batch_size", summary_header)
+            self.assertIn("total_optimizer_steps", summary_header)
             self.assertNotIn("margin_warmup_epochs", summary_header)
             summary_rows = (
                 (experiments_dir / "experiment_summary.csv")

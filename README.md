@@ -211,6 +211,10 @@ Use `hccr train --help` for the complete option list. Important controls are:
 | `--reparameterize-depthwise` | Train 3×3/1×3/3×1 depthwise branches and fuse them for deploy; enabled by default. Use `--no-reparameterize-depthwise` for a control run. |
 | `--classification-head` | `cosface` or `arcface`. |
 | `--margin-warmup-ratio` | Fraction of epochs used to ramp the angular margin multiplier from 0 to 1; promoted default is `0.2`. |
+| `--reference-batch-size` | Reference batch size for equalizing training update budget; default `64`. |
+| `--optimizer-step-policy` | `reference_batch` (default) extends larger-batch runs until they receive at least the reference number of AdamW updates. `configured_epochs` preserves legacy physical-epoch behavior. |
+| `--learning-rate-scaling` | AdamW LR scaling from the reference batch: `sqrt` (default), `linear`, or `none`. |
+| `--lr-warmup-ratio` | Initial cosine-scheduler fraction of optimizer steps used for linear LR warm-up; default `0.05`. |
 | `--image-size` | Square model input resolution. |
 | `--max-classes` | Deterministic fast-benchmark class subset. |
 | `--scheduler` | `none`, `cosine`, or validation-based `plateau`. |
@@ -227,6 +231,13 @@ Each run is written to `experiments/<run-id>/`. Core artifacts include:
 - `resource_profile.json` and `training_diagnostics.json`
 - learning curves, reliability diagrams, per-class metrics, and error galleries
 - a run-scoped log and a cross-run `experiment_summary.csv`
+
+The default batch-aware policy makes `--epochs` an update-budget request rather
+than only a physical-epoch count. For example, with a 64-sample reference,
+`--batch-size 256 --epochs 20` trains roughly four physical epochs for each
+configured epoch so it receives the same number of optimizer updates as batch
+64. The resolved plan is saved to `batch_training_plan.json`; use
+`--optimizer-step-policy configured_epochs` only when reproducing an older run.
 
 ## Experiment sweeps
 

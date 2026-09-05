@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from random import getstate as random_state
 from random import seed as random_seed
@@ -49,6 +49,10 @@ class TrainingConfig:
     epochs: int = 10
     batch_size: int = 64
     learning_rate: float = 1e-3
+    reference_batch_size: int = 64
+    optimizer_step_policy: str = "reference_batch"
+    learning_rate_scaling: str = "sqrt"
+    lr_warmup_ratio: float = 0.05
     weight_decay: float = 1e-4
     image_size: int = 64
     width: int = 64
@@ -84,6 +88,25 @@ class TrainingConfig:
     benchmark_repetitions: int = 5
     bn_recalibration_batches: int = 0
     validation_drop_threshold: float = 0.05
+
+
+@dataclass(frozen=True)
+class BatchTrainingPlan:
+    """Resolved update and learning-rate plan for one training run."""
+
+    configured_epochs: int
+    resolved_epochs: int
+    batch_size: int
+    steps_per_epoch: int
+    reference_steps_per_epoch: int
+    total_optimizer_steps: int
+    reference_batch_size: int
+    optimizer_step_policy: str
+    learning_rate_scaling: str
+    base_learning_rate: float
+    resolved_learning_rate: float
+    resolved_scheduler_min_lr: float
+    warmup_steps: int
 
 
 def run_training(config: TrainingConfig) -> dict[str, float]:
@@ -202,6 +225,11 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         generator=generator,
         **loader_options,
     )
+    training_plan = _build_batch_training_plan(
+        config, len(train_set), len(train_loader)
+    )
+    write_json(output_dir / "batch_training_plan.json", asdict(training_plan))
+    logger.info("batch training plan=%s", training_plan)
     valid_loader = DataLoader(
         valid_set,
         batch_size=config.batch_size,
@@ -260,20 +288,26 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     )
     logger.info("resource profile=%s", resource_profile)
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
+        model.parameters(),
+        lr=training_plan.resolved_learning_rate,
+        weight_decay=config.weight_decay,
     )
     criterion = build_classification_loss(config.label_smoothing)
-    scheduler = _build_scheduler(optimizer, config)
+    scheduler = _build_scheduler(optimizer, config, training_plan)
     early_stopping = EarlyStopping(
-        config.early_stopping_patience, config.early_stopping_min_delta
+        _resolved_early_stopping_patience(config, training_plan),
+        config.early_stopping_min_delta,
     )
     best_metrics: dict[str, float] = {"top1": 0.0, "top5": 0.0}
     curves: list[dict] = []
     validation_stability = None
-    for epoch in range(1, config.epochs + 1):
+    global_step = 0
+    for epoch in range(1, training_plan.resolved_epochs + 1):
+        remaining_steps = training_plan.total_optimizer_steps - global_step
+        max_batches = min(training_plan.steps_per_epoch, remaining_steps)
         margin_multiplier = _margin_multiplier(
             epoch,
-            config.epochs,
+            training_plan.resolved_epochs,
             config.margin_warmup_ratio,
             config.classification_head,
         )
@@ -284,20 +318,24 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             device,
             criterion,
             margin_multiplier,
+            scheduler if config.scheduler == "cosine" else None,
+            max_batches,
         )
+        optimizer_step_start = global_step
+        global_step += int(train_metrics["optimizer_steps"])
         batch_norm = summarize_batch_norm_state(model)
         metrics = evaluate(
             model, valid_loader, device, class_support=training_class_support
         )
-        if scheduler is not None:
-            if config.scheduler == "plateau":
-                scheduler.step(metrics["top1"])
-            else:
-                scheduler.step()
+        if scheduler is not None and config.scheduler == "plateau":
+            scheduler.step(metrics["top1"])
         current_learning_rate = optimizer.param_groups[0]["lr"]
         curves.append(
             {
                 "epoch": float(epoch),
+                "configured_epochs": config.epochs,
+                "optimizer_step_start": optimizer_step_start,
+                "optimizer_step_end": global_step,
                 **train_metrics,
                 **metrics,
                 "batch_norm": batch_norm,
@@ -325,7 +363,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 model,
                 output_dir,
                 {
-                    "schema_version": 3,
+                    "schema_version": 4,
                     "model": {
                         "name": "efficient_hccr",
                         "in_channels": 1,
@@ -346,8 +384,26 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                         "margin_schedule": "linear_warmup",
                         "margin_warmup_ratio": config.margin_warmup_ratio,
                         "resolved_margin_warmup_epochs": _margin_warmup_epochs(
-                            config.epochs, config.margin_warmup_ratio
+                            training_plan.resolved_epochs,
+                            config.margin_warmup_ratio,
                         ),
+                        "optimizer_step_policy": config.optimizer_step_policy,
+                        "reference_batch_size": config.reference_batch_size,
+                        "batch_size": config.batch_size,
+                        "configured_epochs": config.epochs,
+                        "resolved_epochs": training_plan.resolved_epochs,
+                        "steps_per_epoch": training_plan.steps_per_epoch,
+                        "reference_steps_per_epoch": (
+                            training_plan.reference_steps_per_epoch
+                        ),
+                        "total_optimizer_steps": training_plan.total_optimizer_steps,
+                        "learning_rate_scaling": config.learning_rate_scaling,
+                        "base_learning_rate": config.learning_rate,
+                        "resolved_learning_rate": (
+                            training_plan.resolved_learning_rate
+                        ),
+                        "lr_warmup_ratio": config.lr_warmup_ratio,
+                        "warmup_steps": training_plan.warmup_steps,
                         "augmentation": "random_affine_and_blur",
                     },
                     "preprocess": {
@@ -383,6 +439,9 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                     "best_top1": early_stopping.best_score,
                     "bad_epochs": early_stopping.bad_epochs,
                     "patience": config.early_stopping_patience,
+                    "resolved_patience": _resolved_early_stopping_patience(
+                        config, training_plan
+                    ),
                     "min_delta": config.early_stopping_min_delta,
                 },
             )
@@ -467,7 +526,13 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         },
     )
     _append_experiment_summary(
-        config.output_dir, run_id, config, best_metrics, resource_profile, curves
+        config.output_dir,
+        run_id,
+        config,
+        training_plan,
+        best_metrics,
+        resource_profile,
+        curves,
     )
     logger.info("training completed run_id=%s best_metrics=%s", run_id, best_metrics)
     close_logging(logger)
@@ -477,6 +542,22 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
 def _validate_training_config(config: TrainingConfig) -> None:
     if config.epochs < 1:
         raise ValueError("epochs must be positive")
+    if config.batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    if config.reference_batch_size < 1:
+        raise ValueError("reference_batch_size must be positive")
+    if config.optimizer_step_policy not in {"configured_epochs", "reference_batch"}:
+        raise ValueError(
+            "optimizer_step_policy must be one of: configured_epochs, reference_batch"
+        )
+    if config.learning_rate_scaling not in {"none", "sqrt", "linear"}:
+        raise ValueError("learning_rate_scaling must be one of: none, sqrt, linear")
+    if config.learning_rate <= 0:
+        raise ValueError("learning_rate must be positive")
+    if not 0 <= config.scheduler_min_lr <= config.learning_rate:
+        raise ValueError("scheduler_min_lr must be in [0, learning_rate]")
+    if not 0 <= config.lr_warmup_ratio < 1:
+        raise ValueError("lr_warmup_ratio must be in [0, 1)")
     if (
         min(
             config.benchmark_warmup_iterations,
@@ -520,6 +601,62 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("angular_margin must be in [0, pi/2)")
     if not 0 <= config.margin_warmup_ratio <= 1:
         raise ValueError("margin_warmup_ratio must be in [0, 1]")
+
+
+def _build_batch_training_plan(
+    config: TrainingConfig, train_samples: int, steps_per_epoch: int
+) -> BatchTrainingPlan:
+    if train_samples < 1 or steps_per_epoch < 1:
+        raise ValueError("training split must contain at least one batch")
+    reference_steps_per_epoch = math.ceil(train_samples / config.reference_batch_size)
+    configured_steps = config.epochs * steps_per_epoch
+    reference_steps = config.epochs * reference_steps_per_epoch
+    total_optimizer_steps = (
+        max(configured_steps, reference_steps)
+        if config.optimizer_step_policy == "reference_batch"
+        else configured_steps
+    )
+    scale = _learning_rate_scale(
+        config.batch_size, config.reference_batch_size, config.learning_rate_scaling
+    )
+    return BatchTrainingPlan(
+        configured_epochs=config.epochs,
+        resolved_epochs=math.ceil(total_optimizer_steps / steps_per_epoch),
+        batch_size=config.batch_size,
+        steps_per_epoch=steps_per_epoch,
+        reference_steps_per_epoch=reference_steps_per_epoch,
+        total_optimizer_steps=total_optimizer_steps,
+        reference_batch_size=config.reference_batch_size,
+        optimizer_step_policy=config.optimizer_step_policy,
+        learning_rate_scaling=config.learning_rate_scaling,
+        base_learning_rate=config.learning_rate,
+        resolved_learning_rate=config.learning_rate * scale,
+        resolved_scheduler_min_lr=config.scheduler_min_lr * scale,
+        warmup_steps=math.ceil(total_optimizer_steps * config.lr_warmup_ratio),
+    )
+
+
+def _learning_rate_scale(
+    batch_size: int, reference_batch_size: int, policy: str
+) -> float:
+    ratio = batch_size / reference_batch_size
+    if policy == "none":
+        return 1.0
+    if policy == "sqrt":
+        return math.sqrt(ratio)
+    if policy == "linear":
+        return ratio
+    raise ValueError("learning_rate_scaling must be one of: none, sqrt, linear")
+
+
+def _resolved_early_stopping_patience(
+    config: TrainingConfig, plan: BatchTrainingPlan
+) -> int | None:
+    if config.early_stopping_patience is None:
+        return None
+    return math.ceil(
+        config.early_stopping_patience * plan.resolved_epochs / config.epochs
+    )
 
 
 def _initialize_data_worker(_worker_id: int) -> None:
@@ -567,12 +704,23 @@ def _margin_multiplier(
     return min(1.0, (epoch - 1) / (warmup_epochs - 1))
 
 
-def _build_scheduler(optimizer: torch.optim.Optimizer, config: TrainingConfig):
+def _build_scheduler(
+    optimizer: torch.optim.Optimizer,
+    config: TrainingConfig,
+    plan: BatchTrainingPlan,
+):
     if config.scheduler == "none":
         return None
     if config.scheduler == "cosine":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=config.epochs, eta_min=config.scheduler_min_lr
+        minimum_factor = plan.resolved_scheduler_min_lr / plan.resolved_learning_rate
+        return torch.optim.lr_scheduler.LambdaLR(
+            optimizer,
+            lr_lambda=lambda step: _cosine_warmup_factor(
+                step,
+                plan.total_optimizer_steps,
+                plan.warmup_steps,
+                minimum_factor,
+            ),
         )
     if config.scheduler == "plateau":
         return torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -580,9 +728,25 @@ def _build_scheduler(optimizer: torch.optim.Optimizer, config: TrainingConfig):
             mode="max",
             factor=0.5,
             patience=config.scheduler_patience,
-            min_lr=config.scheduler_min_lr,
+            min_lr=plan.resolved_scheduler_min_lr,
         )
     raise ValueError("scheduler must be one of: none, cosine, plateau")
+
+
+def _cosine_warmup_factor(
+    step: int,
+    total_steps: int,
+    warmup_steps: int,
+    minimum_factor: float,
+) -> float:
+    """Return a per-optimizer-step linear-warmup cosine decay multiplier."""
+    if warmup_steps > 0 and step < warmup_steps:
+        return (step + 1) / warmup_steps
+    decay_steps = max(1, total_steps - warmup_steps)
+    progress = min(1.0, max(0.0, (step - warmup_steps) / decay_steps))
+    return minimum_factor + (1.0 - minimum_factor) * 0.5 * (
+        1.0 + math.cos(math.pi * progress)
+    )
 
 
 def _save_preprocessing_gallery(
@@ -641,6 +805,7 @@ def _append_experiment_summary(
     experiments_dir: Path,
     run_id: str,
     config: TrainingConfig,
+    training_plan: BatchTrainingPlan,
     metrics: dict[str, float],
     resource_profile: dict,
     curves: list[dict],
@@ -667,6 +832,11 @@ def _append_experiment_summary(
         "angular_margin",
         "margin_warmup_ratio",
         "epochs",
+        "resolved_epochs",
+        "batch_size",
+        "optimizer_step_policy",
+        "reference_batch_size",
+        "total_optimizer_steps",
         "image_size",
         "top1",
         "top5",
@@ -696,6 +866,9 @@ def _append_experiment_summary(
         "peak_inference_cuda_memory_mib",
         "peak_training_cuda_memory_mib",
         "learning_rate",
+        "resolved_learning_rate",
+        "learning_rate_scaling",
+        "lr_warmup_ratio",
         "weight_decay",
         "scheduler",
         "seed",
@@ -738,6 +911,11 @@ def _append_experiment_summary(
                 "angular_margin": config.angular_margin,
                 "margin_warmup_ratio": config.margin_warmup_ratio,
                 "epochs": config.epochs,
+                "resolved_epochs": training_plan.resolved_epochs,
+                "batch_size": config.batch_size,
+                "optimizer_step_policy": config.optimizer_step_policy,
+                "reference_batch_size": config.reference_batch_size,
+                "total_optimizer_steps": training_plan.total_optimizer_steps,
                 "image_size": config.image_size,
                 "top1": metrics["top1"],
                 "top5": metrics["top5"],
@@ -773,6 +951,9 @@ def _append_experiment_summary(
                     epoch.get("peak_cuda_memory_mib", 0.0) for epoch in curves
                 ),
                 "learning_rate": config.learning_rate,
+                "resolved_learning_rate": training_plan.resolved_learning_rate,
+                "learning_rate_scaling": config.learning_rate_scaling,
+                "lr_warmup_ratio": config.lr_warmup_ratio,
                 "weight_decay": config.weight_decay,
                 "scheduler": config.scheduler,
                 "seed": config.seed,

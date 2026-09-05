@@ -19,6 +19,36 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument(
+        "--reference-batch-size",
+        type=int,
+        default=64,
+        help=(
+            "Batch size whose optimizer-update budget and learning rate are the "
+            "baseline."
+        ),
+    )
+    parser.add_argument(
+        "--optimizer-step-policy",
+        choices=("reference_batch", "configured_epochs"),
+        default="reference_batch",
+        help=(
+            "Match the reference batch's optimizer-update budget (default), or "
+            "preserve the configured physical epoch count."
+        ),
+    )
+    parser.add_argument(
+        "--learning-rate-scaling",
+        choices=("none", "sqrt", "linear"),
+        default="sqrt",
+        help="Scale AdamW learning rate from the reference batch size.",
+    )
+    parser.add_argument(
+        "--lr-warmup-ratio",
+        type=float,
+        default=0.05,
+        help="Cosine scheduler fraction used for linear learning-rate warm-up.",
+    )
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--image-size", type=int, default=64)
     parser.add_argument("--width", type=int, default=64)
@@ -97,6 +127,10 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         epochs=arguments.epochs,
         batch_size=arguments.batch_size,
         learning_rate=arguments.learning_rate,
+        reference_batch_size=arguments.reference_batch_size,
+        optimizer_step_policy=arguments.optimizer_step_policy,
+        learning_rate_scaling=arguments.learning_rate_scaling,
+        lr_warmup_ratio=arguments.lr_warmup_ratio,
         weight_decay=arguments.weight_decay,
         image_size=arguments.image_size,
         width=arguments.width,

@@ -5,6 +5,10 @@ seed: 7
 epochs: 10
 batch_size: 64
 learning_rate: 0.001
+reference_batch_size: 64
+optimizer_step_policy: reference_batch
+learning_rate_scaling: sqrt
+lr_warmup_ratio: 0.05
 weight_decay: 0.0001
 image_size: 64
 width: 32
