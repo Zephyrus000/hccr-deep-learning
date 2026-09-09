@@ -22,6 +22,11 @@ from hccr.preprocessing import EvalPreprocessor
 from hccr.training.diagnostics import profile_model
 from hccr.utils.experiment import write_json
 
+_NEGATED_BOOLEAN_TRAIN_OPTIONS = {
+    "reparameterize_depthwise": "--no-reparameterize-depthwise",
+    "persistent_workers": "--no-persistent-workers",
+}
+
 
 @dataclass(frozen=True)
 class ExperimentVariant:
@@ -255,6 +260,8 @@ def _training_command(
         if isinstance(value, bool):
             if value:
                 command.append(option)
+            elif negated_option := _NEGATED_BOOLEAN_TRAIN_OPTIONS.get(key):
+                command.append(negated_option)
         elif value is not None:
             command.append(option)
             if isinstance(value, (list, tuple)):

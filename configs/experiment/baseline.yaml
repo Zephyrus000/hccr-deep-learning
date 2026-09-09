@@ -1,20 +1,52 @@
-name: efficient_hccr_baseline
+# Reproduction preset for the legacy proposed checkpoint
+# experiments/20260822T224249Z-c43e969f. Its later held-out test measurement
+# was 96.3361% Top-1. This is provenance only: the historical seed is not
+# present in the legacy checkpoint metadata, so seed 7 is a new reproduction.
+#
+# The legacy architecture has no multi-branch reparameterization. Do not use
+# it as the "Proposed EfficientHCCRNet" control for a new reparameterization
+# ablation; use thesis_model_comparison.yaml for that controlled comparison.
+experiment_id: legacy-proposed-96-33-reproduction
+manifest: data/processed/casia_hwdb/manifest.csv
 output_dir: experiments
-device: auto
-seed: 7
-epochs: 10
-batch_size: 64
-learning_rate: 0.001
-reference_batch_size: 64
-optimizer_step_policy: reference_batch
-learning_rate_scaling: sqrt
-lr_warmup_ratio: 0.05
-weight_decay: 0.0001
-image_size: 64
-width: 32
-num_workers: 0
-scheduler: cosine
-scheduler_min_lr: 0.000001
-scheduler_patience: 3
-early_stopping_patience: 8
-early_stopping_min_delta: 0.0
+seeds: [7]
+profile_devices: [cuda]
+full_class_num_classes: 7186
+
+base_args:
+  model: efficient_hccr
+  device: cuda
+  dataset_backend: lmdb
+  evaluation_policy: final_test
+  reproducibility_mode: seeded
+  num_classes: 7186
+  image_size: 96
+  batch_size: 256
+  reference_batch_size: 256
+  optimizer_step_policy: configured_epochs
+  learning_rate_scaling: none
+  epochs: 20
+  learning_rate: 3.0e-4
+  lr_warmup_ratio: 0.0
+  weight_decay: 1.0e-4
+  width: 80
+  stage_depths: [2, 3, 3]
+  stem_stride: 2
+  reparameterize_depthwise: false
+  classification_head: cosface
+  logit_scale: 32.0
+  angular_margin: 0.1
+  margin_warmup_ratio: 0.2
+  dropout: 0.1
+  label_smoothing: 0.0
+  scheduler: cosine
+  scheduler_min_lr: 1.0e-6
+  early_stopping_patience: 0
+  num_workers: 0
+  benchmark_warmup_iterations: 10
+  benchmark_iterations: 50
+  benchmark_repetitions: 3
+
+variants:
+  - name: legacy_efficient_hccr
+    args: {}

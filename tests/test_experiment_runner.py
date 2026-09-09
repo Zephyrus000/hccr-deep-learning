@@ -22,6 +22,62 @@ from hccr.models import EfficientHCCRNet, build_model
 
 
 class ExperimentRunnerTests(unittest.TestCase):
+    def test_checked_in_thesis_comparison_configs_build_expected_commands(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        legacy_arguments = build_parser().parse_args(
+            ["--config", str(root / "configs/experiment/baseline.yaml")]
+        )
+        legacy_jobs = build_jobs(load_experiment_spec(legacy_arguments, root))
+        self.assertEqual(
+            [job.key for job in legacy_jobs], ["legacy_efficient_hccr/seed-7"]
+        )
+        self.assertIn("--no-reparameterize-depthwise", legacy_jobs[0].command)
+
+        arguments = build_parser().parse_args(
+            ["--config", str(root / "configs/experiment/thesis_model_comparison.yaml")]
+        )
+        jobs = build_jobs(load_experiment_spec(arguments, root))
+        commands = {job.key: job.command for job in jobs}
+        self.assertEqual(
+            list(commands),
+            [
+                "new_efficient_hccr/seed-7",
+                "resnet18/seed-7",
+                "mobilenet_v3_small/seed-7",
+                "efficient_hccr_without_reparameterization/seed-7",
+                "efficient_hccr_without_cosface/seed-7",
+            ],
+        )
+        new_command = commands["new_efficient_hccr/seed-7"]
+        self.assertIn("efficient_hccr", new_command)
+        self.assertEqual(new_command[new_command.index("--image-size") + 1], "96")
+        self.assertEqual(new_command[new_command.index("--batch-size") + 1], "256")
+        self.assertEqual(new_command[new_command.index("--width") + 1], "80")
+        self.assertEqual(
+            new_command[
+                new_command.index("--stage-depths")
+                + 1 : new_command.index("--stage-depths")
+                + 4
+            ],
+            ("2", "3", "3"),
+        )
+        self.assertEqual(
+            new_command[new_command.index("--backbone-output-channels") + 1], "320"
+        )
+        self.assertEqual(new_command[new_command.index("--embedding-dim") + 1], "256")
+        self.assertEqual(new_command[new_command.index("--num-workers") + 1], "16")
+        self.assertIn("--reparameterize-depthwise", new_command)
+        self.assertIn("cosface", new_command)
+        self.assertIn("resnet18", commands["resnet18/seed-7"])
+        self.assertIn("mobilenet_v3_small", commands["mobilenet_v3_small/seed-7"])
+        self.assertIn(
+            "--no-reparameterize-depthwise",
+            commands["efficient_hccr_without_reparameterization/seed-7"],
+        )
+        self.assertIn("softmax", commands["efficient_hccr_without_cosface/seed-7"])
+
     def test_model_from_run_restores_mobilenet_and_replaces_only_final_logits(
         self,
     ) -> None:
