@@ -9,7 +9,7 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | Symbol | Purpose |
 | --- | --- |
 | `TrainingConfig` | Frozen, complete training configuration used by the CLI. |
-| `run_training(config)` | Execute one training run and return best validation metrics. |
+| `run_training(config)` | Execute one training run and return selected validation or final held-out test metrics according to policy. |
 | `train_epoch(...)` | Run one optimizer epoch and collect loss, timing, gradient, and throughput metrics. |
 | `EarlyStopping` | Track validation top-1 with patience and minimum delta. |
 | `profile_model(...)` | Measure parameters, MACs, eager/optimized latency, and device metadata. |
@@ -51,14 +51,17 @@ providing argument validation and discoverable help.
 1. Validate configuration, resolve the device, and seed Python/Torch.
 2. Create `experiments/<run-id>/` and write config/environment metadata.
 3. Select an optional deterministic class subset and create train/validation
-   loaders.
+   loaders from the frozen manifest. A test loader is created only for
+   `evaluation_policy="final_test"`.
 4. Build `EfficientHCCRNet`, profile eager/optimized inference, and initialize
    AdamW, scheduler, loss, and early stopping.
-5. Train/evaluate each epoch, persist curves/diagnostics, and replace the best
-   checkpoint on non-decreasing top-1.
-6. Reload the best checkpoint for full validation diagnostics.
+5. Train and evaluate the `validation` split every epoch; use its top-1 for
+   checkpoint selection, plateau scheduling, early stopping, curves, and
+   diagnostics.
+6. Reload the selected checkpoint. In `validation_only`, stop without opening
+   test data; in `final_test`, evaluate the held-out test split once.
 7. Optionally recalibrate BatchNorm on a deterministic training subset and
-   evaluate the recalibrated copy.
+   choose the recalibrated copy only when validation top-1 improves.
 8. Append one row to `experiment_summary.csv` and return best metrics.
 
 Schedulers are `none`, per-optimizer-step `cosine`, and validation-based
@@ -79,13 +82,25 @@ Important run files include:
 - `batch_training_plan.json` (requested/resolved update and learning-rate plan)
 - `checkpoint.pt`, `checkpoint_metadata.json`, `labels.json`
 - `metrics.json`, `curves.json`, `training_diagnostics.json`
-- `resource_profile.json`, `validation_stability.json`
+- `resource_profile.json`, `validation_stability.json`, and final test reports
 - preprocessing/augmentation galleries and evaluation reports
 
-With BN recalibration enabled, the original checkpoint is preserved and the run
-also writes `checkpoint_recalibrated.pt`, recalibration metadata, and reports
-under `bn_recalibrated/`.
+With BN recalibration enabled, the original checkpoint is preserved. The
+recalibrated variant is compared against it on validation and is saved as
+`checkpoint_recalibrated.pt` only when it improves validation top-1. The chosen
+variant is then evaluated once on the held-out test split.
 
 When workers are enabled, CUDA uses the `spawn` start method to avoid inherited
 CUDA state. Persistent workers, prefetching, and a timeout are configurable;
 with zero workers, multiprocessing-only options are omitted from the loader.
+
+The run log prints validation top-1/top-5/macro/tail recall every epoch. Test
+metrics are emitted only in `final_test` after training for the selected
+checkpoint. Writer IDs are unavailable in the current Kaggle-derived image
+export, so artifacts record writer separation as `not_verifiable`, not as a
+verified writer-disjoint split.
+
+Paper screening runs should use `validation_only` and `reproducibility_mode="strict"`.
+Run `final_test` only after architecture and hyperparameters are frozen. Run
+metadata records deterministic flags, key package/runtime versions, the full
+Git commit, dirty state, and a working-tree content digest.

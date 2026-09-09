@@ -66,3 +66,45 @@ def audit_manifest(rows: list[dict[str, str]]) -> ManifestAudit:
 
     overlaps = sum(len(splits) > 1 for splits in writer_splits.values())
     return ManifestAudit(len(rows), len(class_labels), dict(split_counts), overlaps)
+
+
+def writer_provenance(rows: list[dict[str, str]]) -> dict[str, object]:
+    """Summarize whether train/validation writers can be separated from test."""
+    known = [row for row in rows if row["writer_id"].strip()]
+    if not known:
+        availability = "unavailable"
+    elif len(known) == len(rows):
+        availability = "complete"
+    else:
+        availability = "partial"
+    development_writers = {
+        row["writer_id"].strip()
+        for row in known
+        if row["split"] in {"train", "validation"}
+    }
+    test_writers = {
+        row["writer_id"].strip() for row in known if row["split"] == "test"
+    }
+    overlap_count = len(development_writers.intersection(test_writers))
+    has_both_partitions = bool(development_writers and test_writers)
+    verified = (
+        False
+        if overlap_count
+        else True
+        if availability == "complete" and has_both_partitions
+        else None
+    )
+    return {
+        "availability": availability,
+        "overlap_check": (
+            "failed"
+            if overlap_count
+            else "passed"
+            if verified is True
+            else "not_verifiable"
+        ),
+        "writer_disjoint_verified": verified,
+        "known_writer_samples": len(known),
+        "missing_writer_samples": len(rows) - len(known),
+        "train_validation_test_overlap_count": overlap_count,
+    }

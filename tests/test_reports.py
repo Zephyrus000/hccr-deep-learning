@@ -12,5 +12,6 @@ class ReportTests(unittest.TestCase):
                 Path(directory),
                 [{"epoch": 1.0, "train_loss": 1.0, "top1": 0.5}],
                 recalibrated={"epoch": 1.0, "top1": 0.6},
+                evaluation_name="test",
             )
             self.assertTrue(output.is_file())

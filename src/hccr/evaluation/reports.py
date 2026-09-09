@@ -16,6 +16,7 @@ def save_learning_curves(
     output_dir: Path,
     epochs: list[dict[str, float]],
     recalibrated: dict[str, float] | None = None,
+    evaluation_name: str = "validation",
 ) -> Path:
     output = output_dir / "learning_curves.png"
     figure, (loss_axis, accuracy_axis) = plt.subplots(1, 2, figsize=(11, 4))
@@ -26,24 +27,35 @@ def save_learning_curves(
     )
     loss_axis.set(xlabel="epoch", ylabel="loss", title="Training loss")
     loss_axis.legend()
-    accuracy_axis.plot(
-        [item["epoch"] for item in epochs],
-        [item["top1"] for item in epochs],
-        label="validation top-1",
-    )
+    evaluation_epochs = [
+        item
+        for item in epochs
+        if item.get("evaluation_performed", True) and item.get("top1") is not None
+    ]
+    if evaluation_epochs:
+        accuracy_axis.plot(
+            [item["epoch"] for item in evaluation_epochs],
+            [item["top1"] for item in evaluation_epochs],
+            marker="o",
+            label=f"{evaluation_name} top-1",
+        )
     if recalibrated is not None:
         accuracy_axis.scatter(
             [recalibrated["epoch"]],
             [recalibrated["top1"]],
             marker="*",
             s=120,
-            label="BN-recalibrated top-1",
+            label=f"BN-recalibrated {evaluation_name} top-1",
             zorder=3,
         )
     accuracy_axis.set(
-        xlabel="epoch", ylabel="accuracy", title="Validation accuracy", ylim=(0, 1)
+        xlabel="epoch",
+        ylabel="accuracy",
+        title=f"{evaluation_name.title()} accuracy",
+        ylim=(0, 1),
     )
-    accuracy_axis.legend()
+    if accuracy_axis.get_legend_handles_labels()[0]:
+        accuracy_axis.legend()
     figure.tight_layout()
     figure.savefig(output, dpi=150)
     plt.close(figure)

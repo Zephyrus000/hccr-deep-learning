@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -15,7 +16,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 
 from hccr.data.dataset import HCCRDataset, select_class_subset
-from hccr.data.manifest import read_manifest
+from hccr.data.manifest import read_manifest, writer_provenance
 from hccr.evaluation.evaluator import evaluate
 from hccr.evaluation.reports import save_learning_curves
 from hccr.models import build_model
@@ -23,9 +24,9 @@ from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
 from hccr.preprocessing.gallery import save_gallery
 from hccr.training.artifacts import (
     file_digest,
+    record_final_test_metrics,
     save_checkpoint,
     save_recalibrated_checkpoint,
-    update_checkpoint_metrics,
 )
 from hccr.training.callbacks import EarlyStopping
 from hccr.training.diagnostics import (
@@ -76,6 +77,8 @@ class TrainingConfig:
     worker_timeout_seconds: float = 120.0
     max_train_samples: int | None = None
     overfit_check: bool = False
+    evaluation_policy: str = "final_test"
+    reproducibility_mode: str = "seeded"
     max_classes: int | None = None
     class_subset_seed: int = 7
     scheduler: str = "cosine"
@@ -111,11 +114,10 @@ class BatchTrainingPlan:
 
 def run_training(config: TrainingConfig) -> dict[str, float]:
     _validate_training_config(config)
+    reproducibility = _configure_reproducibility(config)
     device = resolve_device(config.device)
-    random_seed(config.seed)
-    torch.manual_seed(config.seed)
-    if device == "cuda":
-        torch.cuda.manual_seed_all(config.seed)
+    manifest_rows = read_manifest(config.manifest_path)
+    writer_info = writer_provenance(manifest_rows)
     run_id = new_run_id()
     output_dir = config.output_dir / run_id
     logger = configure_logging(output_dir)
@@ -126,6 +128,8 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         {
             "manifest_digest": file_digest(config.manifest_path),
             "resolved_device": device,
+            "reproducibility": reproducibility,
+            "writer_provenance": writer_info,
         },
         run_id,
     )
@@ -148,21 +152,34 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         metadata_mode="augmentations",
     )
     training_class_support = _training_class_support(train_set)
-    valid_set = HCCRDataset(
+    selection_split = "validation"
+    validation_set = HCCRDataset(
         config.manifest_path,
-        "validation",
+        selection_split,
         EvalPreprocessor(config.image_size),
         class_id_map,
         storage_backend=config.dataset_backend,
         lmdb_path=config.lmdb_path,
         metadata_mode="index",
     )
-    data_root = (
-        valid_set.root
-        if valid_set.rows
-        and (valid_set.root / valid_set.rows[0]["source_file"]).is_file()
-        else None
-    )
+    test_set = None
+    data_root = None
+    if not config.overfit_check and config.evaluation_policy == "final_test":
+        test_set = HCCRDataset(
+            config.manifest_path,
+            "test",
+            EvalPreprocessor(config.image_size),
+            class_id_map,
+            storage_backend=config.dataset_backend,
+            lmdb_path=config.lmdb_path,
+            metadata_mode="index",
+        )
+        data_root = (
+            test_set.root
+            if test_set.rows
+            and (test_set.root / test_set.rows[0]["source_file"]).is_file()
+            else None
+        )
     if class_id_map is not None:
         write_json(output_dir / "class_subset.json", {"class_id_map": class_id_map})
     _write_label_mapping(output_dir, config.manifest_path, class_id_map)
@@ -194,7 +211,8 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     if config.overfit_check:
         if config.max_train_samples is None:
             raise ValueError("overfit_check requires max_train_samples")
-        valid_set = Subset(
+        selection_split = "train_overfit"
+        validation_set = Subset(
             HCCRDataset(
                 config.manifest_path,
                 "train",
@@ -206,6 +224,13 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             ),
             range(len(train_set)),
         )
+    if not validation_set:
+        raise ValueError(
+            f"{selection_split} split must contain at least one sample; rebuild the "
+            "manifest with a validation split before training"
+        )
+    if test_set is not None and not test_set:
+        raise ValueError("test split must contain at least one sample")
     generator = torch.Generator().manual_seed(config.seed)
     loader_options = _data_loader_options(config, device)
     logger.info(
@@ -230,11 +255,28 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     )
     write_json(output_dir / "batch_training_plan.json", asdict(training_plan))
     logger.info("batch training plan=%s", training_plan)
-    valid_loader = DataLoader(
-        valid_set,
+    validation_loader = DataLoader(
+        validation_set,
         batch_size=config.batch_size,
         **loader_options,
     )
+    logger.info(
+        "selection validation split=%s samples=%s",
+        selection_split,
+        len(validation_set),
+    )
+    test_loader = None
+    if test_set is not None:
+        test_loader = DataLoader(
+            test_set,
+            batch_size=config.batch_size,
+            **loader_options,
+        )
+        logger.info(
+            "final test split=test samples=%s writer_provenance=%s",
+            len(test_set),
+            writer_info["availability"],
+        )
     calibration_loader = None
     if config.bn_recalibration_batches:
         calibration_set = HCCRDataset(
@@ -298,9 +340,11 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         _resolved_early_stopping_patience(config, training_plan),
         config.early_stopping_min_delta,
     )
-    best_metrics: dict[str, float] = {"top1": 0.0, "top5": 0.0}
+    best_validation_metrics: dict[str, float] = {"top1": 0.0, "top5": 0.0}
     curves: list[dict] = []
+    validation_history: list[dict] = []
     validation_stability = None
+    latest_validation_metrics: dict[str, float] | None = None
     global_step = 0
     for epoch in range(1, training_plan.resolved_epochs + 1):
         remaining_steps = training_plan.total_optimizer_steps - global_step
@@ -324,46 +368,44 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         optimizer_step_start = global_step
         global_step += int(train_metrics["optimizer_steps"])
         batch_norm = summarize_batch_norm_state(model)
-        metrics = evaluate(
-            model, valid_loader, device, class_support=training_class_support
+        validation_metrics = evaluate(
+            model,
+            validation_loader,
+            device,
+            class_support=training_class_support,
+            evaluation_name=selection_split,
         )
+        latest_validation_metrics = validation_metrics
+        validation_history.append({"epoch": float(epoch), **validation_metrics})
         if scheduler is not None and config.scheduler == "plateau":
-            scheduler.step(metrics["top1"])
+            scheduler.step(validation_metrics["top1"])
         current_learning_rate = optimizer.param_groups[0]["lr"]
-        curves.append(
-            {
-                "epoch": float(epoch),
-                "configured_epochs": config.epochs,
-                "optimizer_step_start": optimizer_step_start,
-                "optimizer_step_end": global_step,
-                **train_metrics,
-                **metrics,
-                "batch_norm": batch_norm,
-                "next_learning_rate": current_learning_rate,
-            }
-        )
+        curve = {
+            "epoch": float(epoch),
+            "configured_epochs": config.epochs,
+            "optimizer_step_start": optimizer_step_start,
+            "optimizer_step_end": global_step,
+            "selection_split": selection_split,
+            **train_metrics,
+            **validation_metrics,
+            "batch_norm": batch_norm,
+            "next_learning_rate": current_learning_rate,
+        }
         validation_stability = summarize_validation_stability(
-            curves, config.validation_drop_threshold
+            validation_history, config.validation_drop_threshold
         )
+        curves.append(curve)
         write_curves(output_dir, curves)
         write_training_diagnostics(output_dir, curves)
         write_json(output_dir / "validation_stability.json", validation_stability)
-        save_learning_curves(output_dir, curves)
-        logger.info(
-            "epoch=%s train_loss=%.6f grad_norm=%.6f throughput=%.2f validation=%s",
-            epoch,
-            train_metrics["train_loss"],
-            train_metrics["gradient_norm_mean"],
-            train_metrics["train_samples_per_second"],
-            metrics,
-        )
-        if metrics["top1"] >= best_metrics["top1"]:
-            best_metrics = metrics
+        save_learning_curves(output_dir, curves, evaluation_name=selection_split)
+        if validation_metrics["top1"] >= best_validation_metrics["top1"]:
+            best_validation_metrics = validation_metrics
             save_checkpoint(
                 model,
                 output_dir,
                 {
-                    "schema_version": 4,
+                    "schema_version": 6,
                     "model": {
                         "name": "efficient_hccr",
                         "in_channels": 1,
@@ -410,6 +452,17 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                         "image_size": config.image_size,
                         "margin": 4,
                     },
+                    "selection": {
+                        "split": selection_split,
+                        "metrics": validation_metrics,
+                    },
+                    "test": {
+                        "split": "test" if test_set is not None else None,
+                        "status": "not_run",
+                        "evaluation_policy": config.evaluation_policy,
+                        "writer_provenance": writer_info,
+                        "metrics": None,
+                    },
                     "manifest_digest": file_digest(config.manifest_path),
                     "labels_digest": file_digest(output_dir / "labels.json"),
                     "class_subset_digest": (
@@ -417,20 +470,42 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                         if class_id_map is not None
                         else None
                     ),
-                    "metrics": metrics,
                 },
             )
             logger.info("best checkpoint saved epoch=%s", epoch)
+        logger.info(
+            _format_epoch_metrics(
+                epoch,
+                training_plan,
+                train_metrics,
+                validation_metrics,
+                current_learning_rate,
+                global_step,
+                best_validation_metrics["top1"],
+                selection_split,
+            )
+        )
         write_json(
             output_dir / "metrics.json",
             {
+                "schema_version": 2,
                 "run_id": run_id,
-                "best": best_metrics,
-                "latest": metrics,
-                "validation_stability": validation_stability,
+                "validation": {
+                    "split": selection_split,
+                    "best": best_validation_metrics,
+                    "latest": latest_validation_metrics,
+                    "stability": validation_stability,
+                },
+                "test": {
+                    "split": "test" if test_set is not None else None,
+                    "status": "not_run",
+                    "evaluation_policy": config.evaluation_policy,
+                    "writer_provenance": writer_info,
+                    "metrics": None,
+                },
             },
         )
-        if early_stopping.update(metrics["top1"]):
+        if early_stopping.update(validation_metrics["top1"]):
             write_json(
                 output_dir / "early_stopping.json",
                 {
@@ -450,19 +525,9 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     model.load_state_dict(
         torch.load(output_dir / "checkpoint.pt", map_location=device, weights_only=True)
     )
-    diagnostic_metrics = evaluate(
-        model,
-        valid_loader,
-        device,
-        output_dir,
-        data_root,
-        label_mapping,
-        training_class_support,
-    )
-    if diagnostic_metrics["top1"] != best_metrics["top1"]:
-        raise RuntimeError("best checkpoint metrics do not match diagnostic evaluation")
-    best_metrics = {**best_metrics, **diagnostic_metrics}
-    update_checkpoint_metrics(output_dir, best_metrics)
+    selected_model = model
+    selected_checkpoint_name = "checkpoint"
+    selected_validation_metrics = best_validation_metrics
     recalibration_report = None
     if calibration_loader is not None:
         recalibrated_model = deepcopy(model)
@@ -472,57 +537,99 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             device,
             config.bn_recalibration_batches,
         )
-        recalibrated_metrics = evaluate(
+        recalibrated_validation_metrics = evaluate(
             recalibrated_model,
-            valid_loader,
+            validation_loader,
             device,
-            output_dir / "bn_recalibrated",
-            data_root,
-            label_mapping,
-            training_class_support,
+            class_support=training_class_support,
+            evaluation_name=selection_split,
         )
         recalibration_report = {
             "source_checkpoint": "checkpoint.pt",
             "checkpoint": "checkpoint_recalibrated.pt",
-            "top1_delta": recalibrated_metrics["top1"] - best_metrics["top1"],
-            "top5_delta": recalibrated_metrics["top5"] - best_metrics["top5"],
-            "metrics": recalibrated_metrics,
+            "validation_top1_delta": (
+                recalibrated_validation_metrics["top1"]
+                - best_validation_metrics["top1"]
+            ),
+            "validation_top5_delta": (
+                recalibrated_validation_metrics["top5"]
+                - best_validation_metrics["top5"]
+            ),
+            "validation_metrics": recalibrated_validation_metrics,
             "batch_norm": recalibration,
         }
-        save_recalibrated_checkpoint(
-            recalibrated_model,
-            output_dir,
-            recalibrated_metrics,
-            recalibration_report,
-        )
+        if recalibrated_validation_metrics["top1"] > best_validation_metrics["top1"]:
+            selected_model = recalibrated_model
+            selected_checkpoint_name = "checkpoint_recalibrated"
+            selected_validation_metrics = recalibrated_validation_metrics
+            recalibration_report["selected"] = True
+            save_recalibrated_checkpoint(
+                recalibrated_model,
+                output_dir,
+                selected_validation_metrics,
+                recalibration_report,
+            )
+        else:
+            recalibration_report["selected"] = False
+            del recalibrated_model
         write_json(output_dir / "bn_recalibration.json", recalibration_report)
-        save_learning_curves(
-            output_dir,
-            curves,
-            recalibrated={
-                "epoch": validation_stability["best_epoch"],
-                "top1": recalibrated_metrics["top1"],
-            },
-        )
         logger.info(
-            "BN recalibration completed batches=%s samples=%s top1=%.6f delta=%.6f",
+            "BN recalibration validation batches=%s samples=%s top1=%.6f delta=%.6f "
+            "selected=%s",
             recalibration["batches"],
             recalibration["samples"],
-            recalibrated_metrics["top1"],
-            recalibration_report["top1_delta"],
+            recalibrated_validation_metrics["top1"],
+            recalibration_report["validation_top1_delta"],
+            recalibration_report["selected"],
         )
-        del recalibrated_model
+    final_test_metrics = None
+    if test_loader is not None:
+        final_test_metrics = evaluate(
+            selected_model,
+            test_loader,
+            device,
+            output_dir,
+            data_root,
+            label_mapping,
+            training_class_support,
+            evaluation_name="test",
+        )
+        record_final_test_metrics(
+            output_dir, final_test_metrics, selected_checkpoint_name
+        )
+    final_metrics = final_test_metrics or selected_validation_metrics
     write_json(
         output_dir / "metrics.json",
         {
+            "schema_version": 2,
             "run_id": run_id,
-            "best": best_metrics,
-            "latest": metrics,
-            "validation_stability": validation_stability,
-            "bn_recalibrated": (
-                recalibration_report["metrics"] if recalibration_report else None
-            ),
-            "bn_recalibration": recalibration_report,
+            "validation": {
+                "split": selection_split,
+                "best": best_validation_metrics,
+                "latest": latest_validation_metrics,
+                "selected": selected_validation_metrics,
+                "stability": validation_stability,
+            },
+            "test": {
+                "split": "test" if final_test_metrics is not None else None,
+                "status": "completed" if final_test_metrics is not None else "not_run",
+                "reason": (
+                    None
+                    if final_test_metrics is not None
+                    else "validation_only_policy"
+                    if config.evaluation_policy == "validation_only"
+                    else "overfit_check"
+                ),
+                "evaluation_policy": config.evaluation_policy,
+                "writer_provenance": writer_info,
+                "checkpoint": (
+                    f"{selected_checkpoint_name}.pt"
+                    if final_test_metrics is not None
+                    else None
+                ),
+                "metrics": final_test_metrics,
+                "bn_recalibration": recalibration_report,
+            },
         },
     )
     _append_experiment_summary(
@@ -530,16 +637,30 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         run_id,
         config,
         training_plan,
-        best_metrics,
+        selection_split,
+        selected_validation_metrics,
+        final_test_metrics,
         resource_profile,
         curves,
     )
-    logger.info("training completed run_id=%s best_metrics=%s", run_id, best_metrics)
+    logger.info(
+        "training completed run_id=%s | %s",
+        run_id,
+        _format_final_metrics(
+            final_metrics, "test" if final_test_metrics is not None else selection_split
+        ),
+    )
     close_logging(logger)
-    return best_metrics
+    return final_metrics
 
 
 def _validate_training_config(config: TrainingConfig) -> None:
+    if config.evaluation_policy not in {"validation_only", "final_test"}:
+        raise ValueError(
+            "evaluation_policy must be one of: validation_only, final_test"
+        )
+    if config.reproducibility_mode not in {"seeded", "strict"}:
+        raise ValueError("reproducibility_mode must be one of: seeded, strict")
     if config.epochs < 1:
         raise ValueError("epochs must be positive")
     if config.batch_size < 1:
@@ -603,6 +724,32 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("margin_warmup_ratio must be in [0, 1]")
 
 
+def _configure_reproducibility(config: TrainingConfig) -> dict[str, object]:
+    strict = config.reproducibility_mode == "strict"
+    if strict:
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    random_seed(config.seed)
+    torch.manual_seed(config.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config.seed)
+    torch.use_deterministic_algorithms(strict)
+    if torch.backends.cudnn.is_available():
+        torch.backends.cudnn.deterministic = strict
+        torch.backends.cudnn.benchmark = False
+    return {
+        "mode": config.reproducibility_mode,
+        "seed": config.seed,
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "cudnn_deterministic": torch.backends.cudnn.deterministic,
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+        "scope": (
+            "recorded environment; cross-version and cross-device identity "
+            "not guaranteed"
+        ),
+    }
+
+
 def _build_batch_training_plan(
     config: TrainingConfig, train_samples: int, steps_per_epoch: int
 ) -> BatchTrainingPlan:
@@ -657,6 +804,50 @@ def _resolved_early_stopping_patience(
     return math.ceil(
         config.early_stopping_patience * plan.resolved_epochs / config.epochs
     )
+
+
+def _format_epoch_metrics(
+    epoch: int,
+    plan: BatchTrainingPlan,
+    train_metrics: dict[str, float],
+    evaluation_metrics: dict[str, float],
+    learning_rate: float,
+    completed_steps: int,
+    best_top1: float,
+    evaluation_name: str,
+) -> str:
+    """Format the metrics most useful while monitoring a training run."""
+    prefix = (
+        f"epoch={epoch}/{plan.resolved_epochs} "
+        f"updates={completed_steps}/{plan.total_optimizer_steps} "
+        f"train_loss={train_metrics['train_loss']:.4f} "
+        f"lr={learning_rate:.2e} "
+    )
+    suffix = f"throughput={train_metrics['train_samples_per_second']:.1f}img/s"
+    return (
+        prefix
+        + (
+            f"{evaluation_name}_top1={evaluation_metrics['top1']:.2%} "
+            f"{evaluation_name}_top5={evaluation_metrics['top5']:.2%} "
+            f"macro_recall={evaluation_metrics['macro_recall']:.2%} "
+            f"tail_recall={evaluation_metrics['tail_recall']:.2%} "
+            f"best_{evaluation_name}_top1={best_top1:.2%} "
+        )
+        + suffix
+    )
+
+
+def _format_final_metrics(metrics: dict[str, float], evaluation_name: str) -> str:
+    """Format final selected-checkpoint metrics for the run log and CLI."""
+    parts = [
+        f"{evaluation_name}_top1={metrics['top1']:.2%}",
+        f"{evaluation_name}_top5={metrics['top5']:.2%}",
+        f"macro_recall={metrics['macro_recall']:.2%}",
+        f"tail_recall={metrics['tail_recall']:.2%}",
+    ]
+    if "expected_calibration_error" in metrics:
+        parts.append(f"ece={metrics['expected_calibration_error']:.2%}")
+    return " | ".join(parts)
 
 
 def _initialize_data_worker(_worker_id: int) -> None:
@@ -806,7 +997,9 @@ def _append_experiment_summary(
     run_id: str,
     config: TrainingConfig,
     training_plan: BatchTrainingPlan,
-    metrics: dict[str, float],
+    selection_split: str,
+    validation_metrics: dict[str, float],
+    test_metrics: dict[str, float] | None,
     resource_profile: dict,
     curves: list[dict],
 ) -> None:
@@ -819,6 +1012,8 @@ def _append_experiment_summary(
 
     fields = [
         "run_id",
+        "selection_split",
+        "test_split",
         "model",
         "effective_input_channels",
         "width",
@@ -838,6 +1033,10 @@ def _append_experiment_summary(
         "reference_batch_size",
         "total_optimizer_steps",
         "image_size",
+        "validation_top1",
+        "validation_top5",
+        "validation_macro_recall",
+        "validation_tail_recall",
         "top1",
         "top5",
         "macro_recall",
@@ -896,6 +1095,8 @@ def _append_experiment_summary(
         writer.writerow(
             {
                 "run_id": run_id,
+                "selection_split": selection_split,
+                "test_split": "test" if test_metrics is not None else None,
                 "model": "efficient_hccr",
                 "effective_input_channels": resource_profile[
                     "effective_input_channels"
@@ -917,13 +1118,29 @@ def _append_experiment_summary(
                 "reference_batch_size": config.reference_batch_size,
                 "total_optimizer_steps": training_plan.total_optimizer_steps,
                 "image_size": config.image_size,
-                "top1": metrics["top1"],
-                "top5": metrics["top5"],
-                "macro_recall": metrics.get("macro_recall"),
-                "head_recall": metrics.get("head_recall"),
-                "mid_recall": metrics.get("mid_recall"),
-                "tail_recall": metrics.get("tail_recall"),
-                "expected_calibration_error": metrics.get("expected_calibration_error"),
+                "validation_top1": validation_metrics["top1"],
+                "validation_top5": validation_metrics["top5"],
+                "validation_macro_recall": validation_metrics.get("macro_recall"),
+                "validation_tail_recall": validation_metrics.get("tail_recall"),
+                "top1": test_metrics.get("top1") if test_metrics else None,
+                "top5": test_metrics.get("top5") if test_metrics else None,
+                "macro_recall": (
+                    test_metrics.get("macro_recall") if test_metrics else None
+                ),
+                "head_recall": (
+                    test_metrics.get("head_recall") if test_metrics else None
+                ),
+                "mid_recall": (
+                    test_metrics.get("mid_recall") if test_metrics else None
+                ),
+                "tail_recall": (
+                    test_metrics.get("tail_recall") if test_metrics else None
+                ),
+                "expected_calibration_error": (
+                    test_metrics.get("expected_calibration_error")
+                    if test_metrics
+                    else None
+                ),
                 "parameter_count": resource_profile["parameter_count"],
                 "backbone_parameter_count": resource_profile[
                     "backbone_parameter_count"

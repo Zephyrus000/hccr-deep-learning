@@ -1,6 +1,6 @@
 # `hccr.evaluation`
 
-This package evaluates frozen validation splits and produces scalar metrics plus
+This package evaluates frozen dataset splits and produces scalar metrics plus
 diagnostic artifacts. Evaluation always runs with `torch.inference_mode()` and
 switches the model to evaluation mode.
 
@@ -11,15 +11,17 @@ The package root exports:
 | Symbol | Purpose |
 | --- | --- |
 | `classification_metrics(logits, targets)` | Compute top-1 and top-5 accuracy for an in-memory batch. |
-| `save_learning_curves(output_dir, epochs, ...)` | Render training/validation curves. |
+| `save_learning_curves(output_dir, epochs, ...)` | Render training/evaluation curves. |
 
-The training workflow calls `evaluator.evaluate` directly. Its loader must
-yield `(images, targets, metadata)` batches, matching `HCCRDataset`.
+The training workflow calls `evaluator.evaluate` directly. It evaluates the
+validation loader during training and the test loader only after selecting the
+best validation checkpoint. Its loader must yield `(images, targets, metadata)`
+batches, matching `HCCRDataset`.
 
 ```python
 from hccr.evaluation.evaluator import evaluate
 
-metrics = evaluate(model, validation_loader, device="cuda")
+metrics = evaluate(model, test_loader, device="cuda", evaluation_name="test")
 print(metrics["top1"], metrics["top5"])
 ```
 
@@ -33,15 +35,15 @@ logit tensor in memory.
 | File | Responsibility |
 | --- | --- |
 | `metrics.py` | Stateless top-k batch metrics. |
-| `evaluator.py` | Validation loop and aggregate recall calculation. |
+| `evaluator.py` | Evaluation loop and aggregate recall calculation. |
 | `diagnostics.py` | Streaming errors, per-class recall, support tiers, ECE, calibration, and galleries. |
 | `reports.py` | Learning curves, confusion views, and confidence plots. |
 | `analysis.py` | Lightweight error/confusion CSV helpers. |
 
 Typical diagnostic output includes `per_class_metrics.csv`,
-`validation_errors.csv`, `confusion_pairs.csv`, `class_tiers.json`,
-`calibration_bins.json`, `reliability_diagram.png`, and validation health/error
-gallery artifacts.
+`<evaluation>_errors.csv`, `confusion_pairs.csv`, `class_tiers.json`,
+`calibration_bins.json`, `reliability_diagram.png`, and matching health/error
+gallery artifacts. The final diagnostic pass uses `evaluation_name="test"`.
 
 Support tiers are derived from active training support: the bottom 20% of
 classes are `tail`, the top 20% are `head`, and the remainder are `mid`, with

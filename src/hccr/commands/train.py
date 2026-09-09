@@ -109,6 +109,20 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--early-stopping-min-delta", type=float, default=0.0)
     parser.add_argument("--overfit-samples", type=int)
     parser.add_argument("--overfit-check", action="store_true")
+    parser.add_argument(
+        "--evaluation-policy",
+        choices=("validation_only", "final_test"),
+        default="final_test",
+        help=(
+            "Skip held-out test data during selection, or evaluate it once at the end."
+        ),
+    )
+    parser.add_argument(
+        "--reproducibility-mode",
+        choices=("seeded", "strict"),
+        default="seeded",
+        help="Seed stochastic state, or additionally require deterministic algorithms.",
+    )
     parser.add_argument("--max-classes", type=int)
     parser.add_argument("--class-subset-seed", type=int, default=7)
     parser.add_argument("--benchmark-warmup-iterations", type=int, default=20)
@@ -163,6 +177,8 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         early_stopping_min_delta=arguments.early_stopping_min_delta,
         max_train_samples=arguments.overfit_samples,
         overfit_check=arguments.overfit_check,
+        evaluation_policy=arguments.evaluation_policy,
+        reproducibility_mode=arguments.reproducibility_mode,
         max_classes=arguments.max_classes,
         class_subset_seed=arguments.class_subset_seed,
         benchmark_warmup_iterations=arguments.benchmark_warmup_iterations,
@@ -175,5 +191,21 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
 
 def run(arguments: argparse.Namespace) -> int:
     """Run training from parsed CLI arguments."""
-    print(run_training(config_from_arguments(arguments)))
+    metrics = run_training(config_from_arguments(arguments))
+    evaluation_name = (
+        "train_overfit"
+        if arguments.overfit_check
+        else "validation"
+        if arguments.evaluation_policy == "validation_only"
+        else "test"
+    )
+    summary = [
+        f"{evaluation_name}_top1={metrics['top1']:.2%}",
+        f"{evaluation_name}_top5={metrics['top5']:.2%}",
+        f"macro_recall={metrics['macro_recall']:.2%}",
+        f"tail_recall={metrics['tail_recall']:.2%}",
+    ]
+    if "expected_calibration_error" in metrics:
+        summary.append(f"ece={metrics['expected_calibration_error']:.2%}")
+    print("final metrics | " + " | ".join(summary))
     return 0

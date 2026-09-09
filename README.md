@@ -217,6 +217,8 @@ Use `hccr train --help` for the complete option list. Important controls are:
 | `--lr-warmup-ratio` | Initial cosine-scheduler fraction of optimizer steps used for linear LR warm-up; default `0.05`. |
 | `--image-size` | Square model input resolution. |
 | `--max-classes` | Deterministic fast-benchmark class subset. |
+| `--evaluation-policy` | `validation_only` for selection/ablation, or `final_test` for one held-out evaluation after selection. |
+| `--reproducibility-mode` | `seeded` or strict deterministic-algorithm execution. |
 | `--scheduler` | `none`, `cosine`, or validation-based `plateau`. |
 | `--num-workers` | DataLoader concurrency. |
 | `--dataset-backend` | `auto`, direct `filesystem`, or required `lmdb` reads. |
@@ -231,6 +233,23 @@ Each run is written to `experiments/<run-id>/`. Core artifacts include:
 - `resource_profile.json` and `training_diagnostics.json`
 - learning curves, reliability diagrams, per-class metrics, and error galleries
 - a run-scoped log and a cross-run `experiment_summary.csv`
+
+The manifest builder moves a deterministic 10% of each uploader-provided
+training class into `validation`; the remaining 90% is `train`. This is an
+image-level split because writer identity is unavailable in the current Kaggle
+image export. The pipeline therefore records writer-disjointness as
+`not_verifiable`; it does not claim that train, validation, and test writers are
+distinct. Checkpoint selection, plateau scheduling, early stopping, and
+learning curves use only validation.
+
+Use `--evaluation-policy validation_only` for ablations and hyperparameter
+selection. In that mode the test dataset and loader are not constructed. After
+all choices are frozen, use `--evaluation-policy final_test` to evaluate the
+selected checkpoint once and write the result separately in `metrics.json` and
+checkpoint metadata.
+
+If BN recalibration is enabled, its variant is compared on validation first;
+only the selected variant receives the single final test evaluation.
 
 The default batch-aware policy makes `--epochs` an update-budget request rather
 than only a physical-epoch count. For example, with a 64-sample reference,
@@ -262,9 +281,10 @@ python scripts/run_experiments.py \
   --profile-devices cuda cpu
 ```
 
-Every `base_args` or variant `args` key maps to a `hccr train` option. Keep the
-class subset, seeds, input size, hardware, and benchmark settings fixed when
-comparing model variants.
+Every `base_args` or variant `args` key maps to a `hccr train` option. Sweeps
+default to `evaluation_policy: validation_only`; the checked-in ablation config
+also states this explicitly. Keep the class subset, seeds, input size, hardware,
+and benchmark settings fixed when comparing model variants.
 
 Apply an accuracy/latency quality gate to two completed runs:
 

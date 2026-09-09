@@ -7,6 +7,8 @@ profile_devices: [cpu]
 full_class_num_classes: 7186
 
 base_args:
+  evaluation_policy: validation_only
+  reproducibility_mode: strict
   max_classes: 1000
   image_size: 64
   batch_size: 64

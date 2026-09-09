@@ -1,4 +1,4 @@
-"""Validation artifacts used to diagnose model and dataset quality."""
+"""Evaluation artifacts used to diagnose model and dataset quality."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 
 
 class StreamingValidationDiagnostics:
-    """Accumulate validation reports batch by batch without retaining logits."""
+    """Accumulate evaluation reports batch by batch without retaining logits."""
 
     def __init__(
         self,
@@ -26,11 +26,13 @@ class StreamingValidationDiagnostics:
         source_root: Path | None = None,
         labels: Mapping[int, str] | None = None,
         class_support: Mapping[int, int] | None = None,
+        evaluation_name: str = "validation",
     ) -> None:
         self.output_dir = output_dir
         self.source_root = source_root
         self.labels = dict(labels or {})
         self.class_support = dict(class_support or {})
+        self.evaluation_name = evaluation_name
         self.support: Counter[int] = Counter()
         self.hits: Counter[int] = Counter()
         self.bin_counts = [0] * 10
@@ -97,6 +99,7 @@ class StreamingValidationDiagnostics:
             self.hits,
             self.class_support,
             class_tiers,
+            self.evaluation_name,
         )
         _write_confusion_pairs(self.output_dir, self.confusion_pairs, self.labels)
         (self.output_dir / "class_tiers.json").write_text(
@@ -122,13 +125,22 @@ class StreamingValidationDiagnostics:
             + "\n",
             encoding="utf-8",
         )
-        _write_error_records(self.output_dir, self.errors, self.labels)
+        _write_error_records(
+            self.output_dir,
+            self.errors,
+            self.labels,
+            self.evaluation_name,
+        )
         ece = _write_reliability_from_bins(
             self.output_dir, self.bin_counts, self.bin_correct, self.bin_confidence
         )
         if self.source_root is not None:
             _write_error_gallery_from_records(
-                self.output_dir, self.errors, self.source_root, self.labels
+                self.output_dir,
+                self.errors,
+                self.source_root,
+                self.labels,
+                self.evaluation_name,
             )
         health = {
             "samples": self.total_samples,
@@ -139,7 +151,7 @@ class StreamingValidationDiagnostics:
             "unique_confusion_pairs": len(self.confusion_pairs),
             **recall,
         }
-        (self.output_dir / "validation_health.json").write_text(
+        (self.output_dir / f"{self.evaluation_name}_health.json").write_text(
             json.dumps(health, indent=2) + "\n", encoding="utf-8"
         )
         return health
@@ -238,7 +250,9 @@ def _write_per_class_metrics(
     hits: Mapping[int, int],
     class_support: Mapping[int, int],
     class_tiers: Mapping[int, str],
+    evaluation_name: str = "validation",
 ) -> None:
+    support_column = f"{evaluation_name}_support"
     with (output_dir / "per_class_metrics.csv").open(
         "w", newline="", encoding="utf-8"
     ) as file:
@@ -247,7 +261,7 @@ def _write_per_class_metrics(
             fieldnames=[
                 "class_id",
                 "train_support",
-                "validation_support",
+                support_column,
                 "support_tier",
                 "top1_accuracy",
                 "recall",
@@ -258,7 +272,7 @@ def _write_per_class_metrics(
             {
                 "class_id": class_id,
                 "train_support": class_support.get(class_id),
-                "validation_support": count,
+                support_column: count,
                 "support_tier": class_tiers.get(class_id, "mid"),
                 "top1_accuracy": hits.get(class_id, 0) / count,
                 "recall": hits.get(class_id, 0) / count,
@@ -416,6 +430,7 @@ def _write_error_gallery(
     rows: Sequence[dict[str, Any]],
     source_root: Path,
     labels: Mapping[int, str] | None = None,
+    evaluation_name: str = "validation",
 ) -> None:
     errors = [
         (row, target.item(), prediction.item())
@@ -459,13 +474,14 @@ def _write_error_gallery(
             font=font,
             spacing=1,
         )
-    canvas.save(output_dir / "validation_error_gallery.png")
+    canvas.save(output_dir / f"{evaluation_name}_error_gallery.png")
 
 
 def _write_error_records(
     output_dir: Path,
     errors: Sequence[dict[str, Any]],
     labels: Mapping[int, str] | None = None,
+    evaluation_name: str = "validation",
 ) -> None:
     fields = [
         "sample_id",
@@ -478,7 +494,7 @@ def _write_error_records(
         "margin",
         "top5",
     ]
-    with (output_dir / "validation_errors.csv").open(
+    with (output_dir / f"{evaluation_name}_errors.csv").open(
         "w", newline="", encoding="utf-8"
     ) as file:
         writer = csv.DictWriter(file, fieldnames=fields)
@@ -561,13 +577,22 @@ def _write_error_gallery_from_records(
     errors: Sequence[dict[str, Any]],
     source_root: Path,
     labels: Mapping[int, str] | None = None,
+    evaluation_name: str = "validation",
 ) -> None:
     if not errors:
         return
     rows = [error["row"] for error in errors[:25]]
     predictions = torch.tensor([error["prediction"] for error in errors[:25]])
     targets = torch.tensor([error["target"] for error in errors[:25]])
-    _write_error_gallery(output_dir, predictions, targets, rows, source_root, labels)
+    _write_error_gallery(
+        output_dir,
+        predictions,
+        targets,
+        rows,
+        source_root,
+        labels,
+        evaluation_name,
+    )
 
 
 def _display_label(class_id: int, labels: Mapping[int, str] | None) -> str:

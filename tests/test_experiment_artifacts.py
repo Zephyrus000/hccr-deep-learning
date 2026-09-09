@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,3 +15,11 @@ class ExperimentArtifactsTests(unittest.TestCase):
             self.assertTrue((output / "config.json").is_file())
             self.assertTrue((output / "curves.json").is_file())
             self.assertIn(run_id, (output / "metadata.json").read_text())
+            metadata = json.loads((output / "metadata.json").read_text())
+            self.assertEqual(metadata["git"]["commit"], metadata["git_commit"])
+            self.assertIsInstance(metadata["git"]["dirty"], bool)
+            self.assertRegex(
+                metadata["git"]["working_tree_digest"], r"^sha256:[0-9a-f]{64}$"
+            )
+            self.assertIn("packages", metadata["environment"])
+            self.assertIn("torch", metadata["environment"]["packages"])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib.metadata
 import json
 import platform
 import subprocess
@@ -41,7 +43,8 @@ def initialize_run(
             **metadata,
             "run_id": run_id,
             "created_at": datetime.now(UTC).isoformat(),
-            "git_commit": _git_commit(),
+            "git_commit": (git_state := _git_state())["commit"],
+            "git": git_state,
             "environment": _environment_metadata(),
         },
     )
@@ -61,11 +64,57 @@ def _git_commit() -> str | None:
         return None
 
 
-def _environment_metadata() -> dict[str, str | bool | None]:
+def _git_state() -> dict[str, Any]:
+    try:
+        root = Path(
+            subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        )
+        commit = _git_commit()
+        status = subprocess.check_output(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+        diff = subprocess.check_output(
+            ["git", "diff", "--binary", "HEAD", "--"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+        untracked = subprocess.check_output(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError, subprocess.CalledProcessError:
+        return {"commit": None, "dirty": None, "working_tree_digest": None}
+    digest = hashlib.sha256()
+    digest.update(b"status\0" + status + b"diff\0" + diff + b"untracked\0")
+    for encoded_path in sorted(filter(None, untracked.split(b"\0"))):
+        digest.update(encoded_path + b"\0")
+        path = root / encoded_path.decode("utf-8")
+        if path.is_file():
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return {
+        "commit": commit,
+        "dirty": bool(status),
+        "working_tree_digest": f"sha256:{digest.hexdigest()}",
+    }
+
+
+def _environment_metadata() -> dict[str, Any]:
     try:
         import torch
     except ImportError:
-        return {"python": platform.python_version(), "torch": None, "cuda": None}
+        return {
+            "python": platform.python_version(),
+            "torch": None,
+            "cuda": None,
+            "packages": _package_versions(),
+        }
     return {
         "python": platform.python_version(),
         "platform": platform.platform(),
@@ -73,4 +122,30 @@ def _environment_metadata() -> dict[str, str | bool | None]:
         "cuda": torch.version.cuda,
         "cuda_available": torch.cuda.is_available(),
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "cudnn": torch.backends.cudnn.version(),
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "cudnn_deterministic": torch.backends.cudnn.deterministic,
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+        "packages": _package_versions(),
     }
+
+
+def _package_versions() -> dict[str, str | None]:
+    names = (
+        "hccr",
+        "torch",
+        "torchvision",
+        "Pillow",
+        "PyYAML",
+        "lmdb",
+        "matplotlib",
+        "seaborn",
+        "tqdm",
+    )
+    versions = {}
+    for name in names:
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    return versions

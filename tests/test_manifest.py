@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from hccr.data.manifest import audit_manifest
+from hccr.data.manifest import audit_manifest, writer_provenance
 from hccr.data.splitter import WriterDisjointSplitter
 
 
@@ -35,3 +35,28 @@ class ManifestTests(unittest.TestCase):
             splitter.validation_writers(["a", "b", "c", "d"]),
             splitter.validation_writers(["d", "c", "b", "a"]),
         )
+
+    def test_missing_writer_metadata_is_not_reported_as_disjoint(self) -> None:
+        provenance = writer_provenance(
+            [row("1", "a.png", "train"), row("2", "b.png", "test")]
+        )
+        self.assertEqual(provenance["availability"], "unavailable")
+        self.assertEqual(provenance["overlap_check"], "not_verifiable")
+        self.assertIsNone(provenance["writer_disjoint_verified"])
+
+    def test_complete_writer_metadata_reports_overlap_truthfully(self) -> None:
+        disjoint = writer_provenance(
+            [
+                row("1", "a.png", "train", "writer-a"),
+                row("2", "b.png", "test", "writer-b"),
+            ]
+        )
+        overlapping = writer_provenance(
+            [
+                row("1", "a.png", "train", "writer-a"),
+                row("2", "b.png", "test", "writer-a"),
+            ]
+        )
+        self.assertIs(disjoint["writer_disjoint_verified"], True)
+        self.assertIs(overlapping["writer_disjoint_verified"], False)
+        self.assertEqual(overlapping["train_validation_test_overlap_count"], 1)

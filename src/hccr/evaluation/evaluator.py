@@ -1,4 +1,4 @@
-"""Validation loop for frozen HCCR splits."""
+"""Evaluation loop for frozen HCCR splits."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ def evaluate(
     source_root: Path | None = None,
     labels: Mapping[int, str] | None = None,
     class_support: Mapping[int, int] | None = None,
+    evaluation_name: str = "validation",
 ) -> dict[str, float]:
     model.eval()
     total_samples = 0
@@ -33,7 +34,13 @@ def evaluate(
     support: Counter[int] = Counter()
     hits: Counter[int] = Counter()
     diagnostics = (
-        StreamingValidationDiagnostics(output_dir, source_root, labels, class_support)
+        StreamingValidationDiagnostics(
+            output_dir,
+            source_root,
+            labels,
+            class_support,
+            evaluation_name,
+        )
         if output_dir is not None
         else None
     )
