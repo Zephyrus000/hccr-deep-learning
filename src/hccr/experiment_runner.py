@@ -346,23 +346,30 @@ def _model_from_run(
 ) -> torch.nn.Module:
     metadata = _read_json(run_dir / "checkpoint_metadata.json")
     stored = metadata["model"]
-    model_keys = {
-        "in_channels",
-        "width",
-        "stage_depths",
-        "stem_stride",
-        "reparameterize_depthwise",
-        "dropout",
-        "classification_head",
-        "logit_scale",
-        "angular_margin",
-    }
+    model_name = str(stored["name"])
+    model_keys = (
+        {
+            "in_channels",
+            "width",
+            "backbone_output_channels",
+            "embedding_dim",
+            "stage_depths",
+            "stem_stride",
+            "reparameterize_depthwise",
+            "dropout",
+            "classification_head",
+            "logit_scale",
+            "angular_margin",
+        }
+        if model_name == "efficient_hccr"
+        else {"in_channels"}
+    )
     kwargs = {key: stored[key] for key in model_keys if key in stored}
     for tuple_key in ("stage_depths",):
         if tuple_key in kwargs:
             kwargs[tuple_key] = tuple(kwargs[tuple_key])
     target_classes = num_classes_override or int(stored["num_classes"])
-    model = build_model(stored["name"], num_classes=target_classes, **kwargs)
+    model = build_model(model_name, num_classes=target_classes, **kwargs)
     state = torch.load(run_dir / "checkpoint.pt", map_location="cpu", weights_only=True)
     if target_classes == int(stored["num_classes"]):
         model.load_state_dict(state)
@@ -449,9 +456,7 @@ def _summarize(
     status = (
         "completed"
         if completed_keys == planned_keys
-        else "partial"
-        if completed_keys
-        else "failed"
+        else "partial" if completed_keys else "failed"
     )
     return {
         "schema_version": 2,
@@ -658,9 +663,7 @@ def _t_critical_95(degrees_of_freedom: int) -> float:
         raise ValueError("degrees_of_freedom must be positive")
     z = 1.959963984540054
     df = float(degrees_of_freedom)
-    return z + (z**3 + z) / (4 * df) + (5 * z**5 + 16 * z**3 + 3 * z) / (
-        96 * df**2
-    )
+    return z + (z**3 + z) / (4 * df) + (5 * z**5 + 16 * z**3 + 3 * z) / (96 * df**2)
 
 
 def _mean(distribution: dict[str, Any]) -> float | None:

@@ -1,16 +1,16 @@
 # `hccr.models`
 
-This package contains the retained compact grayscale CNN and its deployment
-optimization. Architectures removed by the ablation process—attention blocks,
-cross-stage routes, CSP stages, and directional input adapters—are not part of
-the current API.
+This package contains the proposed compact grayscale CNN, fixed reference
+baselines, and deployment optimization. Architectures removed by the ablation
+process—attention blocks, cross-stage routes, CSP stages, and directional input
+adapters—are not part of the proposed-model API.
 
 ## Public API
 
 | Symbol | Purpose |
 | --- | --- |
 | `EfficientHCCRNet` | Three-stage depthwise-separable CNN for one-channel character images. |
-| `build_model(name, **kwargs)` | Factory accepting the single name `efficient_hccr`. |
+| `build_model(name, **kwargs)` | Factory accepting `efficient_hccr`, `resnet18`, or `mobilenet_v3_small`. |
 | `optimize_model_for_inference(model)` | Return a frozen eval copy with safe inference transformations. |
 
 Internal building blocks in `efficient_hccr.py` are:
@@ -19,6 +19,18 @@ Internal building blocks in `efficient_hccr.py` are:
 - `DepthwiseSeparableBlock`: depthwise spatial convolution, pointwise
   projection, residual/identity skip, and SiLU.
 - `AngularMarginClassifier`: normalized CosFace or ArcFace head.
+
+## Reference baselines
+
+`resnet18` and `mobilenet_v3_small` are standard torchvision architectures
+initialized from scratch (`weights=None`). Both replace the RGB stem with a
+one-channel convolution for the grayscale HCCR input, and both use their normal
+softmax classifier. `mobilenet_v3_small` is named explicitly so a reported
+"MobileNetV3" result is unambiguous.
+
+Each baseline exposes `backbone` and `classifier` separately. Resource reports
+therefore measure its classifier and project the last logits layer to the
+full-class setting without treating the whole model as an opaque block.
 
 ## Model contract
 
@@ -32,6 +44,8 @@ model = EfficientHCCRNet(
     width=64,
     stage_depths=(1, 2, 2),
     stem_stride=2,
+    backbone_output_channels=320,
+    embedding_dim=192,
     reparameterize_depthwise=True,
     classification_head="cosface",
 )
@@ -58,20 +72,42 @@ The training CLI and `TrainingConfig` promote the multi-branch form by default;
 The low-level `EfficientHCCRNet` constructor retains its explicit single-branch
 default so older checkpoint reconstruction does not silently change state keys.
 
+## Decoupled classifier capacity
+
+The final stage width and the angular-classifier dimension are separate. By
+default, both retain the legacy `4 × width` value, so existing checkpoints can
+be reconstructed without a structural change. New runs may use
+`backbone_output_channels` to add a late 1×1 Conv-BatchNorm-SiLU expansion and
+`embedding_dim` to project pooled features before the classifier:
+
+```
+stages -> late 1×1 backbone expansion -> global average pool
+       -> linear embedding projection -> CosFace / ArcFace classifier
+```
+
+This lets the final feature extractor gain capacity while constraining the
+full-class classifier, whose weight count is `num_classes × embedding_dim`.
+For example, 7,186 classes at embedding dimensions 192, 160, and 128 require
+about 1.38M, 1.15M, and 0.92M classifier weights respectively. The resource
+profile reports backbone, embedding-projection, classifier, and combined-head
+costs separately; latency remains the decision metric.
+
 ## Angular heads
 
 CosFace and ArcFace normalize embeddings and class weights. Plain `forward`
 returns target-free scaled cosine logits for validation/inference.
 `training_logits(inputs, targets, margin_multiplier)` applies the target margin
 only during training; the multiplier must be between zero and one and supports
-margin warm-up.
+margin warm-up. `classification_head="softmax"` switches the proposed model to a
+plain linear classifier for the required “Proposed w/o CosFace” ablation.
 
 ## Inference optimization
 
 `optimize_model_for_inference` deep-copies the model, switches it to eval mode,
 folds Conv-BatchNorm pairs, collapses reparameterized depthwise branches,
-replaces eval dropout with identity, caches normalized classifier weights, and
-disables gradients. The source training model and checkpoint remain unchanged.
+folds the optional late pointwise expansion, replaces eval dropout with identity,
+caches normalized classifier weights, and disables gradients. The source
+training model and checkpoint remain unchanged.
 
 Always verify optimized/eager logit equivalence on the target device. The
 training resource profile performs this check and records both benchmark sets.

@@ -155,6 +155,38 @@ class ModelCostBreakdownTests(unittest.TestCase):
             sum(parameter.numel() for parameter in full.parameters()), 2_016_960
         )
 
+    def test_profile_separates_embedding_projection_from_classifier(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            profile = profile_model(
+                EfficientHCCRNet(
+                    num_classes=1000,
+                    width=64,
+                    backbone_output_channels=320,
+                    embedding_dim=160,
+                ),
+                image_size=16,
+                device="cpu",
+                output_dir=Path(directory),
+                warmup_iterations=1,
+                benchmark_iterations=1,
+                benchmark_repetitions=1,
+                full_class_num_classes=7186,
+            )
+        self.assertEqual(profile["backbone_output_channels"], 320)
+        self.assertEqual(profile["embedding_dim"], 160)
+        self.assertEqual(profile["embedding_projection_parameter_count"], 51_200)
+        self.assertEqual(profile["classifier_parameter_count"], 160_000)
+        self.assertEqual(profile["head_parameter_count"], 211_200)
+        self.assertEqual(
+            profile["head_parameter_count"],
+            profile["embedding_projection_parameter_count"]
+            + profile["classifier_parameter_count"],
+        )
+        full_class = profile["full_class_projection"]
+        self.assertEqual(full_class["embedding_projection_parameter_count"], 51_200)
+        self.assertEqual(full_class["classifier_parameter_count"], 1_149_760)
+        self.assertEqual(full_class["head_parameter_count"], 1_200_960)
+
     def test_profile_declares_coverage_end_to_end_and_full_head_projection(
         self,
     ) -> None:

@@ -9,6 +9,10 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.utils.fusion import fuse_conv_bn_eval
 
+from hccr.models.baselines import build_baseline_model
+
+MODEL_NAMES = ("efficient_hccr", "resnet18", "mobilenet_v3_small")
+
 
 class ConvNormAct(nn.Sequential):
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1) -> None:
@@ -209,6 +213,8 @@ class EfficientHCCRNet(nn.Module):
         width: int = 64,
         stage_depths: tuple[int, int, int] = (1, 2, 2),
         stem_stride: int = 2,
+        backbone_output_channels: int | None = None,
+        embedding_dim: int | None = None,
         reparameterize_depthwise: bool = False,
         dropout: float = 0.1,
         classification_head: str = "cosface",
@@ -224,6 +230,13 @@ class EfficientHCCRNet(nn.Module):
             raise ValueError("stage_depths must contain three positive values")
         if stem_stride not in {1, 2}:
             raise ValueError("stem_stride must be 1 or 2")
+        if backbone_output_channels is not None and backbone_output_channels < 1:
+            raise ValueError("backbone_output_channels must be positive when set")
+        if embedding_dim is not None and embedding_dim < 1:
+            raise ValueError("embedding_dim must be positive when set")
+        if classification_head not in {"cosface", "arcface", "softmax"}:
+            raise ValueError("classification_head must be cosface, arcface, or softmax")
+        self.name = "efficient_hccr"
         self.stage_depths, self.width = stage_depths, width
         self.stem_stride = stem_stride
         self.reparameterize_depthwise = reparameterize_depthwise
@@ -254,10 +267,44 @@ class EfficientHCCRNet(nn.Module):
                 previous = output
             stage_ranges.append((start, len(blocks)))
         self.features, self.stage_ranges = nn.Sequential(*blocks), tuple(stage_ranges)
-        self.pool, self.embedding_dropout = nn.AdaptiveAvgPool2d(1), nn.Dropout(dropout)
-        self.classifier = AngularMarginClassifier(
-            previous, num_classes, classification_head, logit_scale, angular_margin
+        feature_channels = previous
+        self.backbone_output_channels = backbone_output_channels or feature_channels
+        self.late_stage_projection = (
+            nn.Identity()
+            if self.backbone_output_channels == feature_channels
+            else nn.Sequential(
+                nn.Conv2d(
+                    feature_channels,
+                    self.backbone_output_channels,
+                    1,
+                    bias=False,
+                ),
+                nn.BatchNorm2d(self.backbone_output_channels),
+                nn.SiLU(inplace=True),
+            )
         )
+        self.embedding_dim = embedding_dim or feature_channels
+        self.pool, self.embedding_dropout = nn.AdaptiveAvgPool2d(1), nn.Dropout(dropout)
+        self.embedding_projection = (
+            nn.Identity()
+            if self.embedding_dim == self.backbone_output_channels
+            else nn.Linear(
+                self.backbone_output_channels,
+                self.embedding_dim,
+                bias=False,
+            )
+        )
+        self.classifier: nn.Module
+        if classification_head == "softmax":
+            self.classifier = nn.Linear(self.embedding_dim, num_classes)
+        else:
+            self.classifier = AngularMarginClassifier(
+                self.embedding_dim,
+                num_classes,
+                classification_head,
+                logit_scale,
+                angular_margin,
+            )
 
     def forward_features(
         self, inputs: torch.Tensor, *, return_stages: bool = False
@@ -266,21 +313,24 @@ class EfficientHCCRNet(nn.Module):
             raise ValueError("EfficientHCCRNet requires BCHW grayscale input")
         features = self.stem(inputs)
         if not return_stages:
-            return self.features(features)
+            return self.late_stage_projection(self.features(features))
         stage_outputs = {}
         for stage_index, (start, end) in enumerate(self.stage_ranges, start=1):
             for block_index in range(start, end):
                 features = self.features[block_index](features)
             if return_stages:
                 stage_outputs[f"stage{stage_index}"] = features
+        features = self.late_stage_projection(features)
         return (features, stage_outputs) if return_stages else features
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+    def _forward_embedding(self, inputs: torch.Tensor) -> torch.Tensor:
         features = self.forward_features(inputs)
         assert isinstance(features, torch.Tensor)
-        return self.classifier(
-            self.embedding_dropout(torch.flatten(self.pool(features), 1))
-        )
+        pooled = self.embedding_dropout(torch.flatten(self.pool(features), 1))
+        return self.embedding_projection(pooled)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self._forward_embedding(inputs))
 
     def training_logits(
         self,
@@ -288,20 +338,17 @@ class EfficientHCCRNet(nn.Module):
         targets: torch.Tensor,
         margin_multiplier: float = 1.0,
     ) -> torch.Tensor:
-        features = self.forward_features(inputs)
-        assert isinstance(features, torch.Tensor)
-        return self.classifier(
-            self.embedding_dropout(torch.flatten(self.pool(features), 1)),
-            targets,
-            margin_multiplier,
-        )
+        embeddings = self._forward_embedding(inputs)
+        if isinstance(self.classifier, AngularMarginClassifier):
+            return self.classifier(embeddings, targets, margin_multiplier)
+        return self.classifier(embeddings)
 
 
-def build_model(name: str, **kwargs) -> EfficientHCCRNet:
-    """Build the single retained model family."""
-    if name != "efficient_hccr":
-        raise ValueError("model name must be efficient_hccr")
-    return EfficientHCCRNet(**kwargs)
+def build_model(name: str, **kwargs) -> nn.Module:
+    """Build a proposed architecture or a fixed reference baseline."""
+    if name == "efficient_hccr":
+        return EfficientHCCRNet(**kwargs)
+    return build_baseline_model(name, **kwargs)
 
 
 def optimize_model_for_inference(model: nn.Module) -> nn.Module:
@@ -315,5 +362,9 @@ def optimize_model_for_inference(model: nn.Module) -> nn.Module:
         if not isinstance(block, DepthwiseSeparableBlock):
             continue
         block.fuse_for_inference()
+    late_projection = optimized.late_stage_projection
+    if isinstance(late_projection, nn.Sequential):
+        late_projection[0] = fuse_conv_bn_eval(late_projection[0], late_projection[1])
+        late_projection[1] = nn.Identity()
     optimized.embedding_dropout = nn.Identity()
     return optimized.requires_grad_(False)

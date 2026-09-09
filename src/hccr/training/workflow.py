@@ -19,7 +19,7 @@ from hccr.data.dataset import HCCRDataset, select_class_subset
 from hccr.data.manifest import read_manifest, writer_provenance
 from hccr.evaluation.evaluator import evaluate
 from hccr.evaluation.reports import save_learning_curves
-from hccr.models import build_model
+from hccr.models import MODEL_NAMES, build_model
 from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
 from hccr.preprocessing.gallery import save_gallery
 from hccr.training.artifacts import (
@@ -47,6 +47,7 @@ class TrainingConfig:
     manifest_path: Path
     output_dir: Path
     num_classes: int
+    model: str = "efficient_hccr"
     epochs: int = 10
     batch_size: int = 64
     learning_rate: float = 1e-3
@@ -57,6 +58,8 @@ class TrainingConfig:
     weight_decay: float = 1e-4
     image_size: int = 64
     width: int = 64
+    backbone_output_channels: int | None = None
+    embedding_dim: int | None = None
     dropout: float = 0.1
     stage_depths: tuple[int, int, int] = (1, 2, 2)
     stem_stride: int = 2
@@ -306,18 +309,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             batch_size=config.batch_size,
             **loader_options,
         )
-    model = build_model(
-        "efficient_hccr",
-        num_classes=active_num_classes,
-        width=config.width,
-        dropout=config.dropout,
-        stage_depths=config.stage_depths,
-        stem_stride=config.stem_stride,
-        reparameterize_depthwise=config.reparameterize_depthwise,
-        classification_head=config.classification_head,
-        logit_scale=config.logit_scale,
-        angular_margin=config.angular_margin,
-    ).to(device)
+    model = _build_training_model(config, active_num_classes).to(device)
     resource_profile = profile_model(
         model,
         config.image_size,
@@ -353,7 +345,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             epoch,
             training_plan.resolved_epochs,
             config.margin_warmup_ratio,
-            config.classification_head,
+            getattr(model, "classification_head", "softmax"),
         )
         train_metrics = train_epoch(
             model,
@@ -405,29 +397,31 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 model,
                 output_dir,
                 {
-                    "schema_version": 6,
-                    "model": {
-                        "name": "efficient_hccr",
-                        "in_channels": 1,
-                        "effective_input_channels": model.effective_input_channels,
-                        "width": config.width,
-                        "stage_depths": list(config.stage_depths),
-                        "stem_stride": config.stem_stride,
-                        "reparameterize_depthwise": config.reparameterize_depthwise,
-                        "dropout": config.dropout,
-                        "classification_head": config.classification_head,
-                        "logit_scale": config.logit_scale,
-                        "angular_margin": config.angular_margin,
-                        "num_classes": active_num_classes,
-                    },
+                    "schema_version": 7,
+                    "model": _model_metadata(model, config, active_num_classes),
                     "training": {
                         "loss": "cross_entropy",
                         "label_smoothing": config.label_smoothing,
-                        "margin_schedule": "linear_warmup",
-                        "margin_warmup_ratio": config.margin_warmup_ratio,
-                        "resolved_margin_warmup_epochs": _margin_warmup_epochs(
-                            training_plan.resolved_epochs,
-                            config.margin_warmup_ratio,
+                        "margin_schedule": (
+                            "linear_warmup"
+                            if getattr(model, "classification_head", "softmax")
+                            in {"cosface", "arcface"}
+                            else "disabled"
+                        ),
+                        "margin_warmup_ratio": (
+                            config.margin_warmup_ratio
+                            if getattr(model, "classification_head", "softmax")
+                            in {"cosface", "arcface"}
+                            else 0.0
+                        ),
+                        "resolved_margin_warmup_epochs": (
+                            _margin_warmup_epochs(
+                                training_plan.resolved_epochs,
+                                config.margin_warmup_ratio,
+                            )
+                            if getattr(model, "classification_head", "softmax")
+                            in {"cosface", "arcface"}
+                            else 0
                         ),
                         "optimizer_step_policy": config.optimizer_step_policy,
                         "reference_batch_size": config.reference_batch_size,
@@ -616,9 +610,11 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
                 "reason": (
                     None
                     if final_test_metrics is not None
-                    else "validation_only_policy"
-                    if config.evaluation_policy == "validation_only"
-                    else "overfit_check"
+                    else (
+                        "validation_only_policy"
+                        if config.evaluation_policy == "validation_only"
+                        else "overfit_check"
+                    )
                 ),
                 "evaluation_policy": config.evaluation_policy,
                 "writer_provenance": writer_info,
@@ -655,6 +651,8 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
 
 
 def _validate_training_config(config: TrainingConfig) -> None:
+    if config.model not in MODEL_NAMES:
+        raise ValueError(f"model must be one of: {', '.join(MODEL_NAMES)}")
     if config.evaluation_policy not in {"validation_only", "final_test"}:
         raise ValueError(
             "evaluation_policy must be one of: validation_only, final_test"
@@ -710,10 +708,17 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("stem_stride must be 1 or 2")
     if config.width < 1:
         raise ValueError("width must be positive")
+    if (
+        config.backbone_output_channels is not None
+        and config.backbone_output_channels < 1
+    ):
+        raise ValueError("backbone_output_channels must be positive when set")
+    if config.embedding_dim is not None and config.embedding_dim < 1:
+        raise ValueError("embedding_dim must be positive when set")
     if not 0 <= config.dropout < 1:
         raise ValueError("dropout must be in [0, 1)")
-    if config.classification_head not in {"cosface", "arcface"}:
-        raise ValueError("classification_head must be one of: cosface, arcface")
+    if config.classification_head not in {"cosface", "arcface", "softmax"}:
+        raise ValueError("classification_head must be cosface, arcface, or softmax")
     if not 0 <= config.label_smoothing < 1:
         raise ValueError("label_smoothing must be in [0, 1)")
     if config.logit_scale <= 0:
@@ -722,6 +727,55 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("angular_margin must be in [0, pi/2)")
     if not 0 <= config.margin_warmup_ratio <= 1:
         raise ValueError("margin_warmup_ratio must be in [0, 1]")
+
+
+def _build_training_model(config: TrainingConfig, num_classes: int) -> torch.nn.Module:
+    """Build the requested family without leaking proposed-only knobs to baselines."""
+    if config.model != "efficient_hccr":
+        return build_model(config.model, num_classes=num_classes, in_channels=1)
+    return build_model(
+        config.model,
+        num_classes=num_classes,
+        width=config.width,
+        backbone_output_channels=config.backbone_output_channels,
+        embedding_dim=config.embedding_dim,
+        dropout=config.dropout,
+        stage_depths=config.stage_depths,
+        stem_stride=config.stem_stride,
+        reparameterize_depthwise=config.reparameterize_depthwise,
+        classification_head=config.classification_head,
+        logit_scale=config.logit_scale,
+        angular_margin=config.angular_margin,
+    )
+
+
+def _model_metadata(
+    model: torch.nn.Module, config: TrainingConfig, num_classes: int
+) -> dict[str, object]:
+    """Persist exactly the constructor data needed to reconstruct a checkpoint."""
+    metadata: dict[str, object] = {
+        "name": config.model,
+        "in_channels": 1,
+        "effective_input_channels": getattr(model, "effective_input_channels", 1),
+        "classification_head": getattr(model, "classification_head", "softmax"),
+        "num_classes": num_classes,
+    }
+    if config.model != "efficient_hccr":
+        return metadata
+    metadata.update(
+        {
+            "width": config.width,
+            "backbone_output_channels": model.backbone_output_channels,
+            "embedding_dim": model.embedding_dim,
+            "stage_depths": list(config.stage_depths),
+            "stem_stride": config.stem_stride,
+            "reparameterize_depthwise": config.reparameterize_depthwise,
+            "dropout": config.dropout,
+            "logit_scale": config.logit_scale,
+            "angular_margin": config.angular_margin,
+        }
+    )
+    return metadata
 
 
 def _configure_reproducibility(config: TrainingConfig) -> dict[str, object]:
@@ -1017,6 +1071,8 @@ def _append_experiment_summary(
         "model",
         "effective_input_channels",
         "width",
+        "backbone_output_channels",
+        "embedding_dim",
         "dropout",
         "stage_depths",
         "stem_stride",
@@ -1046,9 +1102,13 @@ def _append_experiment_summary(
         "expected_calibration_error",
         "parameter_count",
         "backbone_parameter_count",
+        "embedding_projection_parameter_count",
+        "classifier_parameter_count",
         "head_parameter_count",
         "estimated_macs",
         "estimated_backbone_macs",
+        "estimated_embedding_projection_macs",
+        "estimated_classifier_macs",
         "estimated_head_macs",
         "mac_coverage_complete",
         "unsupported_operator_types",
@@ -1097,20 +1157,43 @@ def _append_experiment_summary(
                 "run_id": run_id,
                 "selection_split": selection_split,
                 "test_split": "test" if test_metrics is not None else None,
-                "model": "efficient_hccr",
+                "model": config.model,
                 "effective_input_channels": resource_profile[
                     "effective_input_channels"
                 ],
-                "width": config.width,
-                "dropout": config.dropout,
-                "stage_depths": ",".join(map(str, config.stage_depths)),
-                "stem_stride": config.stem_stride,
-                "reparameterize_depthwise": config.reparameterize_depthwise,
-                "classification_head": config.classification_head,
+                "width": config.width if config.model == "efficient_hccr" else None,
+                "backbone_output_channels": resource_profile[
+                    "backbone_output_channels"
+                ],
+                "embedding_dim": resource_profile["embedding_dim"],
+                "dropout": config.dropout if config.model == "efficient_hccr" else None,
+                "stage_depths": (
+                    ",".join(map(str, config.stage_depths))
+                    if config.model == "efficient_hccr"
+                    else None
+                ),
+                "stem_stride": (
+                    config.stem_stride if config.model == "efficient_hccr" else None
+                ),
+                "reparameterize_depthwise": (
+                    config.reparameterize_depthwise
+                    if config.model == "efficient_hccr"
+                    else None
+                ),
+                "classification_head": (
+                    config.classification_head
+                    if config.model == "efficient_hccr"
+                    else "softmax"
+                ),
                 "label_smoothing": config.label_smoothing,
                 "logit_scale": config.logit_scale,
                 "angular_margin": config.angular_margin,
-                "margin_warmup_ratio": config.margin_warmup_ratio,
+                "margin_warmup_ratio": (
+                    config.margin_warmup_ratio
+                    if config.model == "efficient_hccr"
+                    and config.classification_head in {"cosface", "arcface"}
+                    else 0.0
+                ),
                 "epochs": config.epochs,
                 "resolved_epochs": training_plan.resolved_epochs,
                 "batch_size": config.batch_size,
@@ -1145,9 +1228,21 @@ def _append_experiment_summary(
                 "backbone_parameter_count": resource_profile[
                     "backbone_parameter_count"
                 ],
+                "embedding_projection_parameter_count": resource_profile[
+                    "embedding_projection_parameter_count"
+                ],
+                "classifier_parameter_count": resource_profile[
+                    "classifier_parameter_count"
+                ],
                 "head_parameter_count": resource_profile["head_parameter_count"],
                 "estimated_macs": resource_profile["estimated_macs"],
                 "estimated_backbone_macs": resource_profile["estimated_backbone_macs"],
+                "estimated_embedding_projection_macs": resource_profile[
+                    "estimated_embedding_projection_macs"
+                ],
+                "estimated_classifier_macs": resource_profile[
+                    "estimated_classifier_macs"
+                ],
                 "estimated_head_macs": resource_profile["estimated_head_macs"],
                 "mac_coverage_complete": mac_coverage["complete"],
                 "unsupported_operator_types": json.dumps(

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import torch
 
-from hccr.models import EfficientHCCRNet, optimize_model_for_inference
+from hccr.models import MODEL_NAMES, build_model, optimize_model_for_inference
 
 NAME = "benchmark"
 HELP = "Benchmark the deploy model across supported inference precisions."
@@ -20,6 +20,7 @@ HELP = "Benchmark the deploy model across supported inference precisions."
 def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--num-classes", type=int, default=7186)
+    parser.add_argument("--model", choices=MODEL_NAMES, default="efficient_hccr")
     parser.add_argument("--image-size", type=int, default=96)
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument("--stage-depths", type=int, nargs=3, default=(1, 2, 2))
@@ -88,13 +89,7 @@ def run(arguments: argparse.Namespace) -> int:
         raise ValueError("cpu_threads must be positive")
     if arguments.device == "cpu":
         torch.set_num_threads(arguments.cpu_threads)
-    model = EfficientHCCRNet(
-        num_classes=arguments.num_classes,
-        width=arguments.width,
-        stage_depths=tuple(arguments.stage_depths),
-        stem_stride=arguments.stem_stride,
-        reparameterize_depthwise=arguments.reparameterize_depthwise,
-    )
+    model = _build_benchmark_model(arguments)
     if arguments.checkpoint is not None:
         model.load_state_dict(
             torch.load(arguments.checkpoint, map_location="cpu", weights_only=True)
@@ -135,6 +130,7 @@ def run(arguments: argparse.Namespace) -> int:
         "batch_size": 1,
         "image_size": arguments.image_size,
         "num_classes": arguments.num_classes,
+        "model": arguments.model,
         "width": arguments.width,
         "stage_depths": list(arguments.stage_depths),
         "stem_stride": arguments.stem_stride,
@@ -142,13 +138,7 @@ def run(arguments: argparse.Namespace) -> int:
         "warmup_iterations": arguments.warmup_iterations,
         "iterations": arguments.iterations,
         "cuda_graph": arguments.cuda_graph,
-        "deploy_transforms": [
-            "cache_normalized_classifier_weight",
-            "fold_conv_batch_norm",
-            "fuse_depthwise_training_branches",
-            "remove_eval_dropout_hop",
-            "sequential_feature_fast_path",
-        ],
+        "deploy_transforms": _deploy_transforms(model),
         "results": results,
     }
     encoded = json.dumps(report, indent=2)
@@ -162,6 +152,33 @@ def run(arguments: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the compatibility standalone benchmark entrypoint."""
     return run(build_parser().parse_args(argv))
+
+
+def _build_benchmark_model(arguments: argparse.Namespace) -> torch.nn.Module:
+    if arguments.model != "efficient_hccr":
+        return build_model(arguments.model, num_classes=arguments.num_classes)
+    return build_model(
+        arguments.model,
+        num_classes=arguments.num_classes,
+        width=arguments.width,
+        stage_depths=tuple(arguments.stage_depths),
+        stem_stride=arguments.stem_stride,
+        reparameterize_depthwise=arguments.reparameterize_depthwise,
+    )
+
+
+def _deploy_transforms(model: torch.nn.Module) -> list[str]:
+    if getattr(model, "name", None) != "efficient_hccr":
+        return ["freeze_eval_copy"]
+    transforms = [
+        "fold_conv_batch_norm",
+        "fuse_depthwise_training_branches",
+        "remove_eval_dropout_hop",
+        "sequential_feature_fast_path",
+    ]
+    if getattr(model, "classification_head", None) in {"cosface", "arcface"}:
+        transforms.insert(0, "cache_normalized_classifier_weight")
+    return transforms
 
 
 def _synchronize(device: str) -> None:

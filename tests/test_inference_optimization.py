@@ -61,7 +61,12 @@ class InferenceOptimizationTests(unittest.TestCase):
         torch.testing.assert_close(first, second)
 
     def test_optimized_copy_preserves_logits_and_folds_batch_norm(self) -> None:
-        model = EfficientHCCRNet(num_classes=11, width=8).eval()
+        model = EfficientHCCRNet(
+            num_classes=11,
+            width=8,
+            backbone_output_channels=40,
+            embedding_dim=12,
+        ).eval()
         optimized = optimize_model_for_inference(model)
         inputs = torch.rand(2, 1, 32, 32)
 
@@ -73,6 +78,7 @@ class InferenceOptimizationTests(unittest.TestCase):
         self.assertFalse(
             any(isinstance(module, nn.BatchNorm2d) for module in optimized.modules())
         )
+        self.assertIsInstance(optimized.late_stage_projection[1], nn.Identity)
         self.assertIsInstance(optimized.embedding_dropout, nn.Identity)
 
     def test_multibranch_depthwise_fuses_to_one_spatial_kernel(self) -> None:

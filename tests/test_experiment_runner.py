@@ -6,8 +6,11 @@ from json import dumps
 from pathlib import Path
 from unittest.mock import patch
 
+import torch
+
 from hccr.experiment_runner import (
     _distribution,
+    _model_from_run,
     _paired_metric_delta,
     _summarize,
     build_jobs,
@@ -15,9 +18,80 @@ from hccr.experiment_runner import (
     load_experiment_spec,
     run_experiments,
 )
+from hccr.models import EfficientHCCRNet, build_model
 
 
 class ExperimentRunnerTests(unittest.TestCase):
+    def test_model_from_run_restores_mobilenet_and_replaces_only_final_logits(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            source = build_model("mobilenet_v3_small", num_classes=11).eval()
+            torch.save(source.state_dict(), run_dir / "checkpoint.pt")
+            (run_dir / "checkpoint_metadata.json").write_text(
+                dumps(
+                    {
+                        "model": {
+                            "name": "mobilenet_v3_small",
+                            "num_classes": 11,
+                            "in_channels": 1,
+                            "classification_head": "softmax",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            restored = _model_from_run(run_dir, "cpu").eval()
+            full_head = _model_from_run(run_dir, "cpu", num_classes_override=100)
+
+        self.assertEqual(restored.classifier[-1].out_features, 11)
+        self.assertEqual(full_head.classifier[-1].out_features, 100)
+        inputs = torch.rand(2, 1, 32, 32)
+        torch.testing.assert_close(source(inputs), restored(inputs))
+
+    def test_model_from_run_restores_decoupled_projection_and_full_head(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            source = EfficientHCCRNet(
+                num_classes=11,
+                width=8,
+                backbone_output_channels=40,
+                embedding_dim=12,
+                reparameterize_depthwise=False,
+            ).eval()
+            torch.save(source.state_dict(), run_dir / "checkpoint.pt")
+            (run_dir / "checkpoint_metadata.json").write_text(
+                dumps(
+                    {
+                        "model": {
+                            "name": "efficient_hccr",
+                            "num_classes": 11,
+                            "in_channels": 1,
+                            "width": 8,
+                            "backbone_output_channels": 40,
+                            "embedding_dim": 12,
+                            "stage_depths": [1, 2, 2],
+                            "stem_stride": 2,
+                            "reparameterize_depthwise": False,
+                            "dropout": 0.1,
+                            "classification_head": "cosface",
+                            "logit_scale": 32.0,
+                            "angular_margin": 0.1,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            restored = _model_from_run(run_dir, "cpu").eval()
+            full_head = _model_from_run(run_dir, "cpu", num_classes_override=100)
+
+        self.assertEqual(restored.backbone_output_channels, 40)
+        self.assertEqual(restored.embedding_dim, 12)
+        self.assertEqual(full_head.classifier.out_features, 100)
+        inputs = torch.rand(2, 1, 32, 32)
+        torch.testing.assert_close(source(inputs), restored(inputs))
+
     def test_custom_variants_expand_in_declared_order_without_cartesian_product(
         self,
     ) -> None:
@@ -192,9 +266,7 @@ class ExperimentRunnerTests(unittest.TestCase):
         self.assertAlmostEqual(distribution["ci95_high"], 4.4841377117)
 
     def test_paired_delta_marks_mismatched_seed_sets(self) -> None:
-        baseline = {
-            "seed_metrics": {"7": {"top1": 0.7}, "17": {"top1": 0.8}}
-        }
+        baseline = {"seed_metrics": {"7": {"top1": 0.7}, "17": {"top1": 0.8}}}
         candidate = {"seed_metrics": {"7": {"top1": 0.75}}}
         delta = _paired_metric_delta(baseline, candidate, "top1")
         self.assertFalse(delta["complete"])

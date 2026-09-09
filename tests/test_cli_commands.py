@@ -32,6 +32,19 @@ class CommandRoutingTests(unittest.TestCase):
         )
         self.assertEqual(arguments.evaluation_policy, "validation_only")
 
+    def test_train_parser_selects_reference_model(self) -> None:
+        arguments = build_parser().parse_args(
+            [
+                "train",
+                "--manifest",
+                "manifest.csv",
+                "--model",
+                "mobilenet_v3_small",
+            ]
+        )
+        config = train.config_from_arguments(arguments)
+        self.assertEqual(config.model, "mobilenet_v3_small")
+
     def test_train_parser_accepts_strict_reproducibility(self) -> None:
         arguments = build_parser().parse_args(
             [
@@ -43,6 +56,24 @@ class CommandRoutingTests(unittest.TestCase):
             ]
         )
         self.assertEqual(arguments.reproducibility_mode, "strict")
+
+    def test_train_parser_exposes_decoupled_backbone_and_embedding_dimensions(
+        self,
+    ) -> None:
+        arguments = build_parser().parse_args(
+            [
+                "train",
+                "--manifest",
+                "manifest.csv",
+                "--backbone-output-channels",
+                "320",
+                "--embedding-dim",
+                "160",
+            ]
+        )
+        config = train.config_from_arguments(arguments)
+        self.assertEqual(config.backbone_output_channels, 320)
+        self.assertEqual(config.embedding_dim, 160)
 
     def test_benchmark_parser_and_handler_are_owned_by_benchmark_module(self) -> None:
         arguments = build_parser().parse_args(

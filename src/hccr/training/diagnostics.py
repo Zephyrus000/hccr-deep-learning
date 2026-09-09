@@ -110,17 +110,32 @@ def profile_model(
         else None
     )
     profile = {
+        "model_name": getattr(model, "name", type(model).__name__),
+        "classification_head": getattr(model, "classification_head", "softmax"),
         "device": device,
         "effective_input_channels": getattr(model, "effective_input_channels", 1),
+        "backbone_output_channels": getattr(model, "backbone_output_channels", None),
+        "embedding_dim": getattr(model, "embedding_dim", None),
         "parameter_count": parameter_count,
         "trainable_parameter_count": trainable_parameters,
         "parameter_size_mib": model_bytes / (1024**2),
         "backbone_parameter_count": parameter_counts["backbone"],
+        "embedding_projection_parameter_count": parameter_counts[
+            "embedding_projection"
+        ],
+        "classifier_parameter_count": parameter_counts["classifier"],
         "head_parameter_count": parameter_counts["head"],
         "backbone_parameter_size_mib": parameter_bytes["backbone"] / (1024**2),
+        "embedding_projection_parameter_size_mib": parameter_bytes[
+            "embedding_projection"
+        ]
+        / (1024**2),
+        "classifier_parameter_size_mib": parameter_bytes["classifier"] / (1024**2),
         "head_parameter_size_mib": parameter_bytes["head"] / (1024**2),
         "estimated_macs": macs["total"],
         "estimated_backbone_macs": macs["backbone"],
+        "estimated_embedding_projection_macs": macs["embedding_projection"],
+        "estimated_classifier_macs": macs["classifier"],
         "estimated_head_macs": macs["head"],
         "estimated_input_adapter_macs": macs["input_adapter"],
         "estimated_flops": macs["total"] * 2,
@@ -135,18 +150,16 @@ def profile_model(
         "device_metadata": _device_metadata(device),
         "inference_benchmarks": eager_benchmarks,
         "optimized_inference": {
-            "transforms": [
-                "cache_normalized_classifier_weight",
-                "fold_conv_batch_norm",
-                "fuse_depthwise_training_branches",
-                "remove_eval_dropout_hop",
-                "sequential_feature_fast_path",
-            ],
+            "transforms": _inference_transforms(model),
             "equivalence": optimization_equivalence,
             "parameter_count": optimized_parameter_counts["total"],
             "parameter_size_mib": optimized_parameter_bytes["total"] / (1024**2),
             "estimated_macs": optimized_macs["total"],
             "estimated_backbone_macs": optimized_macs["backbone"],
+            "estimated_embedding_projection_macs": optimized_macs[
+                "embedding_projection"
+            ],
+            "estimated_classifier_macs": optimized_macs["classifier"],
             "estimated_head_macs": optimized_macs["head"],
             "full_class_projection": optimized_full_class_projection,
             "benchmarks": optimized_benchmarks,
@@ -259,18 +272,34 @@ def project_classifier_cost(
             "reason": "model does not expose a Linear classifier boundary",
             "num_classes": num_classes,
         }
-    projected_head_parameters = linear.in_features * num_classes
+    original_classifier_parameters = linear.weight.numel()
+    projected_classifier_parameters = linear.in_features * num_classes
     if linear.bias is not None:
-        projected_head_parameters += num_classes
+        original_classifier_parameters += linear.bias.numel()
+        projected_classifier_parameters += num_classes
     element_size = linear.weight.element_size()
-    projected_head_bytes = projected_head_parameters * element_size
-    projected_head_macs = linear.in_features * num_classes
+    original_classifier_bytes = original_classifier_parameters * element_size
+    projected_classifier_bytes = projected_classifier_parameters * element_size
+    projected_classifier_macs = linear.in_features * num_classes
+    original_classifier_macs = linear.in_features * linear.out_features
+    fixed_head_parameters = parameter_counts["head"] - original_classifier_parameters
+    fixed_head_bytes = parameter_bytes["head"] - original_classifier_bytes
+    fixed_head_macs = macs["head"] - original_classifier_macs
+    projected_head_parameters = fixed_head_parameters + projected_classifier_parameters
+    projected_head_bytes = fixed_head_bytes + projected_classifier_bytes
+    projected_head_macs = fixed_head_macs + projected_classifier_macs
     return {
         "status": "available",
         "num_classes": num_classes,
         "embedding_dim": linear.in_features,
+        "backbone_parameter_count": parameter_counts["backbone"],
+        "embedding_projection_parameter_count": fixed_head_parameters,
+        "classifier_parameter_count": projected_classifier_parameters,
         "head_parameter_count": projected_head_parameters,
         "head_parameter_size_mib": projected_head_bytes / (1024**2),
+        "backbone_macs": macs["backbone"],
+        "embedding_projection_macs": fixed_head_macs,
+        "classifier_macs": projected_classifier_macs,
         "head_macs": projected_head_macs,
         "total_parameter_count": parameter_counts["backbone"]
         + projected_head_parameters,
@@ -313,14 +342,16 @@ def estimate_macs_by_component(
     model: nn.Module, image_size: int, device: str
 ) -> dict[str, int]:
     """Estimate total, backbone and classifier Conv2d/Linear MACs."""
-    macs = {"total": 0, "backbone": 0, "head": 0, "input_adapter": 0}
+    macs = {
+        "total": 0,
+        "backbone": 0,
+        "embedding_projection": 0,
+        "classifier": 0,
+        "head": 0,
+        "input_adapter": 0,
+    }
     component_by_module = {
-        id(module): (
-            "head"
-            if name == "classifier" or name.startswith("classifier.")
-            else "backbone"
-        )
-        for name, module in model.named_modules()
+        id(module): _component_for_name(name) for name, module in model.named_modules()
     }
     input_adapter_modules = {
         id(module)
@@ -374,27 +405,66 @@ def estimate_macs_by_component(
     finally:
         for handle in hooks:
             handle.remove()
+    macs["head"] = macs["embedding_projection"] + macs["classifier"]
     return macs
 
 
 def _parameter_counts_by_component(model: nn.Module) -> dict[str, int]:
-    counts = {"total": 0, "backbone": 0, "head": 0}
+    counts = {
+        "total": 0,
+        "backbone": 0,
+        "embedding_projection": 0,
+        "classifier": 0,
+        "head": 0,
+    }
     for name, parameter in model.named_parameters():
-        component = "head" if name.startswith("classifier.") else "backbone"
+        component = _component_for_name(name)
         count = parameter.numel()
         counts[component] += count
         counts["total"] += count
+    counts["head"] = counts["embedding_projection"] + counts["classifier"]
     return counts
 
 
 def _parameter_bytes_by_component(model: nn.Module) -> dict[str, int]:
-    sizes = {"total": 0, "backbone": 0, "head": 0}
+    sizes = {
+        "total": 0,
+        "backbone": 0,
+        "embedding_projection": 0,
+        "classifier": 0,
+        "head": 0,
+    }
     for name, parameter in model.named_parameters():
-        component = "head" if name.startswith("classifier.") else "backbone"
+        component = _component_for_name(name)
         size = parameter.numel() * parameter.element_size()
         sizes[component] += size
         sizes["total"] += size
+    sizes["head"] = sizes["embedding_projection"] + sizes["classifier"]
     return sizes
+
+
+def _component_for_name(name: str) -> str:
+    if name == "classifier" or name.startswith("classifier."):
+        return "classifier"
+    if name == "embedding_projection" or name.startswith("embedding_projection."):
+        return "embedding_projection"
+    return "backbone"
+
+
+def _inference_transforms(model: nn.Module) -> list[str]:
+    """Describe only transformations actually applied to the model family."""
+    if getattr(model, "name", None) != "efficient_hccr":
+        return ["freeze_eval_copy"]
+    transforms = [
+        "fold_conv_batch_norm",
+        "fuse_depthwise_training_branches",
+        "fold_late_pointwise_batch_norm",
+        "remove_eval_dropout_hop",
+        "sequential_feature_fast_path",
+    ]
+    if getattr(model, "classification_head", None) in {"cosface", "arcface"}:
+        transforms.insert(0, "cache_normalized_classifier_weight")
+    return transforms
 
 
 def _benchmark_batch(

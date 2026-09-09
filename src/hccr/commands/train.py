@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from hccr.models import MODEL_NAMES
 from hccr.training import TrainingConfig, run_training
 
 NAME = "train"
@@ -16,6 +17,12 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("experiments"))
     parser.add_argument("--num-classes", type=int, default=7186)
+    parser.add_argument(
+        "--model",
+        choices=MODEL_NAMES,
+        default="efficient_hccr",
+        help="Model family: proposed EfficientHCCRNet or a fixed reference baseline.",
+    )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
@@ -52,6 +59,22 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--image-size", type=int, default=64)
     parser.add_argument("--width", type=int, default=64)
+    parser.add_argument(
+        "--backbone-output-channels",
+        type=int,
+        help=(
+            "Optional 1x1 late-stage backbone expansion before pooling. "
+            "Keep unset for the width*4 baseline."
+        ),
+    )
+    parser.add_argument(
+        "--embedding-dim",
+        type=int,
+        help=(
+            "CosFace/ArcFace embedding dimension. Keep unset for the legacy "
+            "width*4 value; set independently to cap full-class head growth."
+        ),
+    )
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument(
         "--stage-depths",
@@ -71,7 +94,9 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
-        "--classification-head", choices=("cosface", "arcface"), default="cosface"
+        "--classification-head",
+        choices=("cosface", "arcface", "softmax"),
+        default="cosface",
     )
     parser.add_argument("--label-smoothing", type=float, default=0.0)
     parser.add_argument("--logit-scale", type=float, default=32.0)
@@ -138,6 +163,7 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         manifest_path=arguments.manifest,
         output_dir=arguments.output_dir,
         num_classes=arguments.num_classes,
+        model=arguments.model,
         epochs=arguments.epochs,
         batch_size=arguments.batch_size,
         learning_rate=arguments.learning_rate,
@@ -148,6 +174,8 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         weight_decay=arguments.weight_decay,
         image_size=arguments.image_size,
         width=arguments.width,
+        backbone_output_channels=arguments.backbone_output_channels,
+        embedding_dim=arguments.embedding_dim,
         dropout=arguments.dropout,
         stage_depths=tuple(arguments.stage_depths),
         stem_stride=arguments.stem_stride,
@@ -195,9 +223,9 @@ def run(arguments: argparse.Namespace) -> int:
     evaluation_name = (
         "train_overfit"
         if arguments.overfit_check
-        else "validation"
-        if arguments.evaluation_policy == "validation_only"
-        else "test"
+        else (
+            "validation" if arguments.evaluation_policy == "validation_only" else "test"
+        )
     )
     summary = [
         f"{evaluation_name}_top1={metrics['top1']:.2%}",

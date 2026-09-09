@@ -107,7 +107,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertEqual(checkpoint_metadata["model"]["dropout"], 0.1)
             self.assertEqual(checkpoint_metadata["model"]["stem_stride"], 2)
             self.assertTrue(checkpoint_metadata["model"]["reparameterize_depthwise"])
-            self.assertEqual(checkpoint_metadata["schema_version"], 6)
+            self.assertEqual(checkpoint_metadata["schema_version"], 7)
             self.assertEqual(
                 checkpoint_metadata["model"]["classification_head"], "cosface"
             )

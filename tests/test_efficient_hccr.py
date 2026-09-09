@@ -76,6 +76,31 @@ class EfficientHCCRArchitectureTests(unittest.TestCase):
         self.assertIsInstance(first_block.pointwise[0], torch.nn.Conv2d)
         self.assertEqual(first_block.pointwise[0].kernel_size, (1, 1))
 
+    def test_classifier_embedding_is_decoupled_from_late_backbone_capacity(
+        self,
+    ) -> None:
+        model = EfficientHCCRNet(
+            num_classes=11,
+            width=8,
+            backbone_output_channels=40,
+            embedding_dim=12,
+        )
+        features = model.forward_features(torch.randn(2, 1, 64, 64))
+        self.assertIsInstance(features, torch.Tensor)
+        self.assertEqual(features.shape, (2, 40, 8, 8))
+        self.assertEqual(model.backbone_output_channels, 40)
+        self.assertEqual(model.embedding_dim, 12)
+        self.assertEqual(model.embedding_projection.in_features, 40)
+        self.assertEqual(model.embedding_projection.out_features, 12)
+        self.assertEqual(model.classifier.in_features, 12)
+        self.assertEqual(model(torch.randn(2, 1, 64, 64)).shape, (2, 11))
+
+    def test_decoupled_dimensions_must_be_positive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "backbone_output_channels"):
+            EfficientHCCRNet(num_classes=11, width=8, backbone_output_channels=0)
+        with self.assertRaisesRegex(ValueError, "embedding_dim"):
+            EfficientHCCRNet(num_classes=11, width=8, embedding_dim=0)
+
 
 class AngularMarginHeadTests(unittest.TestCase):
     def test_cosface_margin_changes_only_target_logits(self) -> None:
