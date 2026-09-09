@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from json import dumps
 from pathlib import Path
+from unittest.mock import patch
 
 from hccr.experiment_runner import (
     build_jobs,
@@ -92,3 +94,45 @@ class ExperimentRunnerTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "reserved"):
                 load_experiment_spec(arguments, Path(directory))
+
+    def test_completed_run_consumes_nested_validation_and_test_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = root / "experiments" / "20260909T000000Z-test"
+            run_dir.mkdir(parents=True)
+            (run_dir / "metrics.json").write_text(
+                dumps(
+                    {
+                        "validation": {"best": {"top1": 0.8, "top5": 0.95}},
+                        "test": {
+                            "status": "completed",
+                            "metrics": {"top1": 0.75, "top5": 0.93},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            arguments = build_parser().parse_args(
+                [
+                    "--experiment-id",
+                    "completed-run",
+                    "--manifest",
+                    "manifest.csv",
+                    "--output-dir",
+                    "experiments",
+                    "--seeds",
+                    "7",
+                ]
+            )
+            spec = load_experiment_spec(arguments, root)
+
+            with (
+                patch("hccr.experiment_runner._run_training_job", return_value=run_dir),
+                patch("hccr.experiment_runner._profile_run", return_value={}),
+            ):
+                result = run_experiments(spec)
+
+        record = result["records"][0]
+        self.assertEqual(record["selection_metrics"]["top1"], 0.8)
+        self.assertEqual(record["test_metrics"]["top1"], 0.75)
+        self.assertEqual(result["variants"]["default"]["metrics"]["top1"]["mean"], 0.8)

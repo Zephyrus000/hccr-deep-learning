@@ -191,7 +191,7 @@ def run_experiments(
         write_json(state_path, result)
         return result
     prior = _read_json(state_path) if resume and state_path.is_file() else {}
-    records = list(prior.get("records", []))
+    records = [_normalize_record(record) for record in prior.get("records", [])]
     completed = {record["key"] for record in records if record["status"] == "completed"}
     started_at = prior.get("started_at", datetime.now(UTC).isoformat())
     for job in jobs:
@@ -200,7 +200,7 @@ def run_experiments(
         _write_status(state_path, started_at, records, "training", job.key)
         try:
             run_dir = _run_training_job(spec, job, experiment_dir, show_output)
-            metrics = _read_json(run_dir / "metrics.json")["best"]
+            run_result = _load_run_result(run_dir / "metrics.json")
             profiles = _profile_run(spec, job, run_dir, experiment_dir)
             records.append(
                 {
@@ -210,7 +210,7 @@ def run_experiments(
                     "status": "completed",
                     "run_id": run_dir.name,
                     "run_path": str(run_dir),
-                    "metrics": metrics,
+                    **run_result,
                     "profiles": profiles,
                 }
             )
@@ -399,9 +399,9 @@ def _summarize(
             "metrics": {
                 metric: _distribution(
                     [
-                        float(row["metrics"][metric])
+                        float(row["selection_metrics"][metric])
                         for row in rows
-                        if metric in row["metrics"]
+                        if metric in row["selection_metrics"]
                     ]
                 )
                 for metric in metric_names
@@ -577,6 +577,56 @@ def _jsonable_spec(spec: ExperimentSpec) -> dict[str, Any]:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_run_result(path: Path) -> dict[str, Any]:
+    payload = _read_json(path)
+    validation = payload.get("validation")
+    if isinstance(validation, dict) and isinstance(validation.get("best"), dict):
+        test = payload.get("test")
+        test_status = test.get("status", "not_run") if isinstance(test, dict) else "not_run"
+        test_metrics = test.get("metrics") if isinstance(test, dict) else None
+        if test_metrics is not None and not isinstance(test_metrics, dict):
+            raise ValueError(f"invalid test.metrics object in {path}")
+        return {
+            "metrics_schema": "nested-v1",
+            "selection_split": "validation",
+            "selection_metrics": validation["best"],
+            "test_status": test_status,
+            "test_metrics": test_metrics,
+        }
+    legacy = payload.get("best")
+    if isinstance(legacy, dict):
+        return {
+            "metrics_schema": "legacy-best",
+            "selection_split": "validation",
+            "selection_metrics": legacy,
+            "test_status": "unknown",
+            "test_metrics": None,
+        }
+    raise ValueError(
+        f"unsupported metrics schema in {path}; expected validation.best or legacy best"
+    )
+
+
+def _normalize_record(record: dict[str, Any]) -> dict[str, Any]:
+    if record.get("status") != "completed" or "selection_metrics" in record:
+        return record
+    legacy_metrics = record.get("metrics")
+    if not isinstance(legacy_metrics, dict):
+        raise ValueError(f"completed record {record.get('key')} has no metrics")
+    normalized = dict(record)
+    normalized.pop("metrics", None)
+    normalized.update(
+        {
+            "metrics_schema": "legacy-record",
+            "selection_split": "validation",
+            "selection_metrics": legacy_metrics,
+            "test_status": "unknown",
+            "test_metrics": None,
+        }
+    )
+    return normalized
 
 
 def _write_status(
