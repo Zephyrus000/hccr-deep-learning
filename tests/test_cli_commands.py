@@ -57,6 +57,21 @@ class CommandRoutingTests(unittest.TestCase):
         )
         self.assertEqual(arguments.reproducibility_mode, "strict")
 
+    def test_train_parser_exposes_distributed_configuration(self) -> None:
+        arguments = build_parser().parse_args(
+            [
+                "train",
+                "--manifest",
+                "manifest.csv",
+                "--distributed",
+                "--distributed-backend",
+                "gloo",
+            ]
+        )
+        config = train.config_from_arguments(arguments)
+        self.assertTrue(config.distributed)
+        self.assertEqual(config.distributed_backend, "gloo")
+
     def test_train_parser_exposes_decoupled_backbone_and_embedding_dimensions(
         self,
     ) -> None:

@@ -49,6 +49,22 @@ class BatchTrainingPlanTests(unittest.TestCase):
         self.assertEqual(plan.total_optimizer_steps, 80)
         self.assertEqual(plan.resolved_epochs, 20)
 
+    def test_distributed_plan_scales_against_effective_global_batch(self) -> None:
+        plan = _build_batch_training_plan(
+            self._config(
+                optimizer_step_policy="configured_epochs",
+                learning_rate_scaling="linear",
+                reference_batch_size=256,
+            ),
+            train_samples=1024,
+            steps_per_epoch=2,
+            world_size=2,
+        )
+
+        self.assertEqual(plan.world_size, 2)
+        self.assertEqual(plan.effective_global_batch_size, 512)
+        self.assertAlmostEqual(plan.resolved_learning_rate, 6e-4)
+
     def test_cosine_warmup_reaches_base_then_minimum_learning_rate(self) -> None:
         self.assertAlmostEqual(_cosine_warmup_factor(0, 320, 16, 0.01), 1 / 16)
         self.assertAlmostEqual(_cosine_warmup_factor(16, 320, 16, 0.01), 1.0)

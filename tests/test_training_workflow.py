@@ -132,6 +132,15 @@ class TrainingWorkflowTests(unittest.TestCase):
                     "optimizer_step_policy": "reference_batch",
                     "reference_batch_size": 2,
                     "batch_size": 2,
+                    "effective_global_batch_size": 2,
+                    "distributed": {
+                        "enabled": False,
+                        "rank": 0,
+                        "world_size": 1,
+                        "local_rank": 0,
+                        "backend": None,
+                        "device": "cuda",
+                    },
                     "configured_epochs": 2,
                     "resolved_epochs": 2,
                     "steps_per_epoch": 1,
@@ -216,6 +225,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertIn("margin_warmup_ratio", summary_header)
             self.assertIn("optimizer_step_policy", summary_header)
             self.assertIn("batch_size", summary_header)
+            self.assertIn("effective_global_batch_size", summary_header)
             self.assertIn("total_optimizer_steps", summary_header)
             self.assertNotIn("margin_warmup_epochs", summary_header)
             summary_rows = (

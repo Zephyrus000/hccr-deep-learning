@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 from copy import deepcopy
@@ -13,7 +14,7 @@ from random import seed as random_seed
 from random import setstate as restore_random_state
 
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, DistributedSampler, Subset
 
 from hccr.data.dataset import HCCRDataset, select_class_subset
 from hccr.data.manifest import read_manifest, writer_provenance
@@ -35,6 +36,13 @@ from hccr.training.diagnostics import (
     summarize_batch_norm_state,
     summarize_validation_stability,
     write_training_diagnostics,
+)
+from hccr.training.distributed import (
+    DistributedContext,
+    destroy_distributed,
+    initialize_distributed,
+    unwrap_model,
+    wrap_model_for_training,
 )
 from hccr.training.losses import build_classification_loss
 from hccr.training.trainer import train_epoch
@@ -70,6 +78,8 @@ class TrainingConfig:
     angular_margin: float = 0.1
     margin_warmup_ratio: float = 0.2
     device: str = "auto"
+    distributed: bool = False
+    distributed_backend: str = "auto"
     seed: int = 7
     num_workers: int = 0
     dataset_backend: str = "auto"
@@ -113,29 +123,53 @@ class BatchTrainingPlan:
     resolved_learning_rate: float
     resolved_scheduler_min_lr: float
     warmup_steps: int
+    world_size: int = 1
+    effective_global_batch_size: int = 0
 
 
 def run_training(config: TrainingConfig) -> dict[str, float]:
+    """Run one training job, optionally under a torchrun DDP process group."""
     _validate_training_config(config)
-    reproducibility = _configure_reproducibility(config)
-    device = resolve_device(config.device)
+    distributed = initialize_distributed(
+        config.distributed, resolve_device(config.device), config.distributed_backend
+    )
+    try:
+        return _run_training(config, distributed)
+    finally:
+        destroy_distributed(distributed)
+
+
+def _run_training(
+    config: TrainingConfig, distributed: DistributedContext
+) -> dict[str, float]:
+    reproducibility = _configure_reproducibility(config, distributed.rank)
+    device = distributed.device
     manifest_rows = read_manifest(config.manifest_path)
     writer_info = writer_provenance(manifest_rows)
-    run_id = new_run_id()
-    output_dir = config.output_dir / run_id
-    logger = configure_logging(output_dir)
-    logger.info("training started config=%s", config)
-    initialize_run(
-        output_dir,
-        config,
-        {
-            "manifest_digest": file_digest(config.manifest_path),
-            "resolved_device": device,
-            "reproducibility": reproducibility,
-            "writer_provenance": writer_info,
-        },
-        run_id,
+    run_id = distributed.broadcast_object(
+        new_run_id() if distributed.is_main_process else None
     )
+    output_dir = config.output_dir / run_id
+    logger = (
+        configure_logging(output_dir)
+        if distributed.is_main_process
+        else logging.getLogger(f"hccr.rank{distributed.rank}")
+    )
+    if distributed.is_main_process:
+        logger.info("training started config=%s", config)
+        initialize_run(
+            output_dir,
+            config,
+            {
+                "manifest_digest": file_digest(config.manifest_path),
+                "resolved_device": device,
+                "reproducibility": reproducibility,
+                "writer_provenance": writer_info,
+                "distributed": _distributed_metadata(distributed),
+            },
+            run_id,
+        )
+    distributed.barrier()
     class_id_map = (
         select_class_subset(
             config.manifest_path, config.max_classes, config.class_subset_seed
@@ -183,30 +217,32 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             and (test_set.root / test_set.rows[0]["source_file"]).is_file()
             else None
         )
-    if class_id_map is not None:
-        write_json(output_dir / "class_subset.json", {"class_id_map": class_id_map})
-    _write_label_mapping(output_dir, config.manifest_path, class_id_map)
-    label_mapping = {
-        int(class_id): label
-        for class_id, label in json.loads(
-            (output_dir / "labels.json").read_text(encoding="utf-8")
-        )["labels"].items()
-    }
-    _save_preprocessing_gallery(
-        train_set,
-        EvalPreprocessor(config.image_size),
-        output_dir,
-        "preprocessing_gallery.png",
-    )
-    saved_random_state = random_state()
-    random_seed(config.seed)
-    _save_preprocessing_gallery(
-        train_set,
-        train_transform,
-        output_dir,
-        "augmentation_gallery.png",
-    )
-    restore_random_state(saved_random_state)
+    label_mapping: dict[int, str] = {}
+    if distributed.is_main_process:
+        if class_id_map is not None:
+            write_json(output_dir / "class_subset.json", {"class_id_map": class_id_map})
+        _write_label_mapping(output_dir, config.manifest_path, class_id_map)
+        label_mapping = {
+            int(class_id): label
+            for class_id, label in json.loads(
+                (output_dir / "labels.json").read_text(encoding="utf-8")
+            )["labels"].items()
+        }
+        _save_preprocessing_gallery(
+            train_set,
+            EvalPreprocessor(config.image_size),
+            output_dir,
+            "preprocessing_gallery.png",
+        )
+        saved_random_state = random_state()
+        random_seed(config.seed)
+        _save_preprocessing_gallery(
+            train_set,
+            train_transform,
+            output_dir,
+            "augmentation_gallery.png",
+        )
+        restore_random_state(saved_random_state)
     if config.max_train_samples is not None:
         train_set = Subset(
             train_set, range(min(config.max_train_samples, len(train_set)))
@@ -234,42 +270,52 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         )
     if test_set is not None and not test_set:
         raise ValueError("test split must contain at least one sample")
-    generator = torch.Generator().manual_seed(config.seed)
+    generator = torch.Generator().manual_seed(config.seed + distributed.rank)
     loader_options = _data_loader_options(config, device)
-    logger.info(
-        "data loader workers=%s start_method=%s persistent=%s prefetch=%s "
-        "timeout_seconds=%s pin_memory=%s",
-        config.num_workers,
-        loader_options.get("multiprocessing_context", "platform_default"),
-        loader_options.get("persistent_workers", False),
-        loader_options.get("prefetch_factor"),
-        loader_options.get("timeout", 0),
-        loader_options["pin_memory"],
-    )
+    train_sampler = _train_sampler(train_set, config, distributed)
+    if distributed.is_main_process:
+        logger.info(
+            "data loader workers=%s start_method=%s persistent=%s prefetch=%s "
+            "timeout_seconds=%s pin_memory=%s distributed_world_size=%s",
+            config.num_workers,
+            loader_options.get("multiprocessing_context", "platform_default"),
+            loader_options.get("persistent_workers", False),
+            loader_options.get("prefetch_factor"),
+            loader_options.get("timeout", 0),
+            loader_options["pin_memory"],
+            distributed.world_size,
+        )
     train_loader = DataLoader(
         train_set,
         batch_size=config.batch_size,
-        shuffle=True,
+        shuffle=train_sampler is None,
+        sampler=train_sampler,
         generator=generator,
         **loader_options,
     )
     training_plan = _build_batch_training_plan(
-        config, len(train_set), len(train_loader)
+        config, len(train_set), len(train_loader), distributed.world_size
     )
-    write_json(output_dir / "batch_training_plan.json", asdict(training_plan))
-    logger.info("batch training plan=%s", training_plan)
-    validation_loader = DataLoader(
-        validation_set,
-        batch_size=config.batch_size,
-        **loader_options,
+    if distributed.is_main_process:
+        write_json(output_dir / "batch_training_plan.json", asdict(training_plan))
+        logger.info("batch training plan=%s", training_plan)
+    validation_loader = (
+        DataLoader(
+            validation_set,
+            batch_size=config.batch_size,
+            **loader_options,
+        )
+        if distributed.is_main_process
+        else None
     )
-    logger.info(
-        "selection validation split=%s samples=%s",
-        selection_split,
-        len(validation_set),
-    )
+    if distributed.is_main_process:
+        logger.info(
+            "selection validation split=%s samples=%s",
+            selection_split,
+            len(validation_set),
+        )
     test_loader = None
-    if test_set is not None:
+    if test_set is not None and distributed.is_main_process:
         test_loader = DataLoader(
             test_set,
             batch_size=config.batch_size,
@@ -281,7 +327,7 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             writer_info["availability"],
         )
     calibration_loader = None
-    if config.bn_recalibration_batches:
+    if config.bn_recalibration_batches and distributed.is_main_process:
         calibration_set = HCCRDataset(
             config.manifest_path,
             "train",
@@ -310,19 +356,24 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             **loader_options,
         )
     model = _build_training_model(config, active_num_classes).to(device)
-    resource_profile = profile_model(
-        model,
-        config.image_size,
-        device,
-        output_dir,
-        config.benchmark_warmup_iterations,
-        config.benchmark_iterations,
-        config.benchmark_repetitions,
-        EvalPreprocessor(config.image_size),
-    )
-    logger.info("resource profile=%s", resource_profile)
+    resource_profile = None
+    if distributed.is_main_process:
+        resource_profile = profile_model(
+            model,
+            config.image_size,
+            device,
+            output_dir,
+            config.benchmark_warmup_iterations,
+            config.benchmark_iterations,
+            config.benchmark_repetitions,
+            EvalPreprocessor(config.image_size),
+        )
+        logger.info("resource profile=%s", resource_profile)
+    distributed.barrier()
+    training_model = wrap_model_for_training(model, distributed)
+    base_model = unwrap_model(training_model)
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        training_model.parameters(),
         lr=training_plan.resolved_learning_rate,
         weight_decay=config.weight_decay,
     )
@@ -339,16 +390,18 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
     latest_validation_metrics: dict[str, float] | None = None
     global_step = 0
     for epoch in range(1, training_plan.resolved_epochs + 1):
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
         remaining_steps = training_plan.total_optimizer_steps - global_step
         max_batches = min(training_plan.steps_per_epoch, remaining_steps)
         margin_multiplier = _margin_multiplier(
             epoch,
             training_plan.resolved_epochs,
             config.margin_warmup_ratio,
-            getattr(model, "classification_head", "softmax"),
+            getattr(base_model, "classification_head", "softmax"),
         )
         train_metrics = train_epoch(
-            model,
+            training_model,
             train_loader,
             optimizer,
             device,
@@ -356,298 +409,371 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
             margin_multiplier,
             scheduler if config.scheduler == "cosine" else None,
             max_batches,
+            distributed,
         )
         optimizer_step_start = global_step
         global_step += int(train_metrics["optimizer_steps"])
-        batch_norm = summarize_batch_norm_state(model)
-        validation_metrics = evaluate(
-            model,
-            validation_loader,
-            device,
-            class_support=training_class_support,
-            evaluation_name=selection_split,
-        )
-        latest_validation_metrics = validation_metrics
-        validation_history.append({"epoch": float(epoch), **validation_metrics})
+        validation_metrics = None
+        if distributed.is_main_process:
+            assert validation_loader is not None
+            validation_metrics = evaluate(
+                base_model,
+                validation_loader,
+                device,
+                class_support=training_class_support,
+                evaluation_name=selection_split,
+            )
+        validation_metrics = distributed.broadcast_object(validation_metrics)
+        assert isinstance(validation_metrics, dict)
         if scheduler is not None and config.scheduler == "plateau":
             scheduler.step(validation_metrics["top1"])
         current_learning_rate = optimizer.param_groups[0]["lr"]
-        curve = {
-            "epoch": float(epoch),
-            "configured_epochs": config.epochs,
-            "optimizer_step_start": optimizer_step_start,
-            "optimizer_step_end": global_step,
-            "selection_split": selection_split,
-            **train_metrics,
-            **validation_metrics,
-            "batch_norm": batch_norm,
-            "next_learning_rate": current_learning_rate,
-        }
-        validation_stability = summarize_validation_stability(
-            validation_history, config.validation_drop_threshold
-        )
-        curves.append(curve)
-        write_curves(output_dir, curves)
-        write_training_diagnostics(output_dir, curves)
-        write_json(output_dir / "validation_stability.json", validation_stability)
-        save_learning_curves(output_dir, curves, evaluation_name=selection_split)
-        if validation_metrics["top1"] >= best_validation_metrics["top1"]:
-            best_validation_metrics = validation_metrics
-            save_checkpoint(
-                model,
-                output_dir,
-                {
-                    "schema_version": 7,
-                    "model": _model_metadata(model, config, active_num_classes),
-                    "training": {
-                        "loss": "cross_entropy",
-                        "label_smoothing": config.label_smoothing,
-                        "margin_schedule": (
-                            "linear_warmup"
-                            if getattr(model, "classification_head", "softmax")
-                            in {"cosface", "arcface"}
-                            else "disabled"
-                        ),
-                        "margin_warmup_ratio": (
-                            config.margin_warmup_ratio
-                            if getattr(model, "classification_head", "softmax")
-                            in {"cosface", "arcface"}
-                            else 0.0
-                        ),
-                        "resolved_margin_warmup_epochs": (
-                            _margin_warmup_epochs(
-                                training_plan.resolved_epochs,
-                                config.margin_warmup_ratio,
-                            )
-                            if getattr(model, "classification_head", "softmax")
-                            in {"cosface", "arcface"}
-                            else 0
-                        ),
-                        "optimizer_step_policy": config.optimizer_step_policy,
-                        "reference_batch_size": config.reference_batch_size,
-                        "batch_size": config.batch_size,
-                        "configured_epochs": config.epochs,
-                        "resolved_epochs": training_plan.resolved_epochs,
-                        "steps_per_epoch": training_plan.steps_per_epoch,
-                        "reference_steps_per_epoch": (
-                            training_plan.reference_steps_per_epoch
-                        ),
-                        "total_optimizer_steps": training_plan.total_optimizer_steps,
-                        "learning_rate_scaling": config.learning_rate_scaling,
-                        "base_learning_rate": config.learning_rate,
-                        "resolved_learning_rate": (
-                            training_plan.resolved_learning_rate
-                        ),
-                        "lr_warmup_ratio": config.lr_warmup_ratio,
-                        "warmup_steps": training_plan.warmup_steps,
-                        "augmentation": "random_affine_and_blur",
-                    },
-                    "preprocess": {
-                        "image_size": config.image_size,
-                        "margin": 4,
-                    },
-                    "selection": {
-                        "split": selection_split,
-                        "metrics": validation_metrics,
-                    },
-                    "test": {
-                        "split": "test" if test_set is not None else None,
-                        "status": "not_run",
-                        "evaluation_policy": config.evaluation_policy,
-                        "writer_provenance": writer_info,
-                        "metrics": None,
-                    },
-                    "manifest_digest": file_digest(config.manifest_path),
-                    "labels_digest": file_digest(output_dir / "labels.json"),
-                    "class_subset_digest": (
-                        file_digest(output_dir / "class_subset.json")
-                        if class_id_map is not None
-                        else None
+        should_stop = False
+        if distributed.is_main_process:
+            batch_norm = summarize_batch_norm_state(base_model)
+            latest_validation_metrics = validation_metrics
+            validation_history.append({"epoch": float(epoch), **validation_metrics})
+            curve = {
+                "epoch": float(epoch),
+                "configured_epochs": config.epochs,
+                "optimizer_step_start": optimizer_step_start,
+                "optimizer_step_end": global_step,
+                "selection_split": selection_split,
+                **train_metrics,
+                **validation_metrics,
+                "batch_norm": batch_norm,
+                "next_learning_rate": current_learning_rate,
+            }
+            validation_stability = summarize_validation_stability(
+                validation_history, config.validation_drop_threshold
+            )
+            curves.append(curve)
+            write_curves(output_dir, curves)
+            write_training_diagnostics(output_dir, curves)
+            write_json(output_dir / "validation_stability.json", validation_stability)
+            save_learning_curves(output_dir, curves, evaluation_name=selection_split)
+            if validation_metrics["top1"] >= best_validation_metrics["top1"]:
+                best_validation_metrics = validation_metrics
+                save_checkpoint(
+                    base_model,
+                    output_dir,
+                    _checkpoint_metadata(
+                        config,
+                        training_plan,
+                        base_model,
+                        active_num_classes,
+                        output_dir,
+                        validation_metrics,
+                        selection_split,
+                        test_set is not None,
+                        writer_info,
+                        class_id_map,
+                        distributed,
                     ),
-                },
+                )
+                logger.info("best checkpoint saved epoch=%s", epoch)
+            logger.info(
+                _format_epoch_metrics(
+                    epoch,
+                    training_plan,
+                    train_metrics,
+                    validation_metrics,
+                    current_learning_rate,
+                    global_step,
+                    best_validation_metrics["top1"],
+                    selection_split,
+                )
             )
-            logger.info("best checkpoint saved epoch=%s", epoch)
-        logger.info(
-            _format_epoch_metrics(
-                epoch,
-                training_plan,
-                train_metrics,
-                validation_metrics,
-                current_learning_rate,
-                global_step,
-                best_validation_metrics["top1"],
-                selection_split,
+            write_json(
+                output_dir / "metrics.json",
+                _metrics_payload(
+                    run_id,
+                    selection_split,
+                    best_validation_metrics,
+                    latest_validation_metrics,
+                    validation_stability,
+                    test_set is not None,
+                    config,
+                    writer_info,
+                ),
+            )
+            should_stop = early_stopping.update(validation_metrics["top1"])
+            if should_stop:
+                write_json(
+                    output_dir / "early_stopping.json",
+                    {
+                        "stopped": True,
+                        "stopped_epoch": epoch,
+                        "best_top1": early_stopping.best_score,
+                        "bad_epochs": early_stopping.bad_epochs,
+                        "patience": config.early_stopping_patience,
+                        "resolved_patience": _resolved_early_stopping_patience(
+                            config, training_plan
+                        ),
+                        "min_delta": config.early_stopping_min_delta,
+                    },
+                )
+                logger.info("early stopping at epoch=%s", epoch)
+        should_stop = bool(distributed.broadcast_object(should_stop))
+        if should_stop:
+            break
+    distributed.barrier()
+    final_metrics = None
+    if distributed.is_main_process:
+        base_model.load_state_dict(
+            torch.load(
+                output_dir / "checkpoint.pt", map_location=device, weights_only=True
             )
         )
+        selected_model = base_model
+        selected_checkpoint_name = "checkpoint"
+        selected_validation_metrics = best_validation_metrics
+        recalibration_report = None
+        if calibration_loader is not None:
+            assert validation_loader is not None
+            recalibrated_model = deepcopy(base_model)
+            recalibration = recalibrate_batch_norm(
+                recalibrated_model,
+                calibration_loader,
+                device,
+                config.bn_recalibration_batches,
+            )
+            recalibrated_validation_metrics = evaluate(
+                recalibrated_model,
+                validation_loader,
+                device,
+                class_support=training_class_support,
+                evaluation_name=selection_split,
+            )
+            recalibration_report = {
+                "source_checkpoint": "checkpoint.pt",
+                "checkpoint": "checkpoint_recalibrated.pt",
+                "validation_top1_delta": (
+                    recalibrated_validation_metrics["top1"]
+                    - best_validation_metrics["top1"]
+                ),
+                "validation_top5_delta": (
+                    recalibrated_validation_metrics["top5"]
+                    - best_validation_metrics["top5"]
+                ),
+                "validation_metrics": recalibrated_validation_metrics,
+                "batch_norm": recalibration,
+            }
+            if (
+                recalibrated_validation_metrics["top1"]
+                > best_validation_metrics["top1"]
+            ):
+                selected_model = recalibrated_model
+                selected_checkpoint_name = "checkpoint_recalibrated"
+                selected_validation_metrics = recalibrated_validation_metrics
+                recalibration_report["selected"] = True
+                save_recalibrated_checkpoint(
+                    recalibrated_model,
+                    output_dir,
+                    selected_validation_metrics,
+                    recalibration_report,
+                )
+            else:
+                recalibration_report["selected"] = False
+                del recalibrated_model
+            write_json(output_dir / "bn_recalibration.json", recalibration_report)
+            logger.info(
+                "BN recalibration validation batches=%s samples=%s top1=%.6f "
+                "delta=%.6f selected=%s",
+                recalibration["batches"],
+                recalibration["samples"],
+                recalibrated_validation_metrics["top1"],
+                recalibration_report["validation_top1_delta"],
+                recalibration_report["selected"],
+            )
+        final_test_metrics = None
+        if test_loader is not None:
+            final_test_metrics = evaluate(
+                selected_model,
+                test_loader,
+                device,
+                output_dir,
+                data_root,
+                label_mapping,
+                training_class_support,
+                evaluation_name="test",
+            )
+            record_final_test_metrics(
+                output_dir, final_test_metrics, selected_checkpoint_name
+            )
+        final_metrics = final_test_metrics or selected_validation_metrics
         write_json(
             output_dir / "metrics.json",
-            {
-                "schema_version": 2,
-                "run_id": run_id,
-                "validation": {
-                    "split": selection_split,
-                    "best": best_validation_metrics,
-                    "latest": latest_validation_metrics,
-                    "stability": validation_stability,
-                },
-                "test": {
-                    "split": "test" if test_set is not None else None,
-                    "status": "not_run",
-                    "evaluation_policy": config.evaluation_policy,
-                    "writer_provenance": writer_info,
-                    "metrics": None,
-                },
-            },
-        )
-        if early_stopping.update(validation_metrics["top1"]):
-            write_json(
-                output_dir / "early_stopping.json",
-                {
-                    "stopped": True,
-                    "stopped_epoch": epoch,
-                    "best_top1": early_stopping.best_score,
-                    "bad_epochs": early_stopping.bad_epochs,
-                    "patience": config.early_stopping_patience,
-                    "resolved_patience": _resolved_early_stopping_patience(
-                        config, training_plan
-                    ),
-                    "min_delta": config.early_stopping_min_delta,
-                },
-            )
-            logger.info("early stopping at epoch=%s", epoch)
-            break
-    model.load_state_dict(
-        torch.load(output_dir / "checkpoint.pt", map_location=device, weights_only=True)
-    )
-    selected_model = model
-    selected_checkpoint_name = "checkpoint"
-    selected_validation_metrics = best_validation_metrics
-    recalibration_report = None
-    if calibration_loader is not None:
-        recalibrated_model = deepcopy(model)
-        recalibration = recalibrate_batch_norm(
-            recalibrated_model,
-            calibration_loader,
-            device,
-            config.bn_recalibration_batches,
-        )
-        recalibrated_validation_metrics = evaluate(
-            recalibrated_model,
-            validation_loader,
-            device,
-            class_support=training_class_support,
-            evaluation_name=selection_split,
-        )
-        recalibration_report = {
-            "source_checkpoint": "checkpoint.pt",
-            "checkpoint": "checkpoint_recalibrated.pt",
-            "validation_top1_delta": (
-                recalibrated_validation_metrics["top1"]
-                - best_validation_metrics["top1"]
-            ),
-            "validation_top5_delta": (
-                recalibrated_validation_metrics["top5"]
-                - best_validation_metrics["top5"]
-            ),
-            "validation_metrics": recalibrated_validation_metrics,
-            "batch_norm": recalibration,
-        }
-        if recalibrated_validation_metrics["top1"] > best_validation_metrics["top1"]:
-            selected_model = recalibrated_model
-            selected_checkpoint_name = "checkpoint_recalibrated"
-            selected_validation_metrics = recalibrated_validation_metrics
-            recalibration_report["selected"] = True
-            save_recalibrated_checkpoint(
-                recalibrated_model,
-                output_dir,
+            _metrics_payload(
+                run_id,
+                selection_split,
+                best_validation_metrics,
+                latest_validation_metrics,
+                validation_stability,
+                test_set is not None,
+                config,
+                writer_info,
                 selected_validation_metrics,
+                final_test_metrics,
+                selected_checkpoint_name,
                 recalibration_report,
-            )
-        else:
-            recalibration_report["selected"] = False
-            del recalibrated_model
-        write_json(output_dir / "bn_recalibration.json", recalibration_report)
+            ),
+        )
+        _append_experiment_summary(
+            config.output_dir,
+            run_id,
+            config,
+            training_plan,
+            selection_split,
+            selected_validation_metrics,
+            final_test_metrics,
+            resource_profile,
+            curves,
+        )
         logger.info(
-            "BN recalibration validation batches=%s samples=%s top1=%.6f delta=%.6f "
-            "selected=%s",
-            recalibration["batches"],
-            recalibration["samples"],
-            recalibrated_validation_metrics["top1"],
-            recalibration_report["validation_top1_delta"],
-            recalibration_report["selected"],
+            "training completed run_id=%s | %s",
+            run_id,
+            _format_final_metrics(
+                final_metrics,
+                "test" if final_test_metrics is not None else selection_split,
+            ),
         )
-    final_test_metrics = None
-    if test_loader is not None:
-        final_test_metrics = evaluate(
-            selected_model,
-            test_loader,
-            device,
-            output_dir,
-            data_root,
-            label_mapping,
-            training_class_support,
-            evaluation_name="test",
-        )
-        record_final_test_metrics(
-            output_dir, final_test_metrics, selected_checkpoint_name
-        )
-    final_metrics = final_test_metrics or selected_validation_metrics
-    write_json(
-        output_dir / "metrics.json",
-        {
-            "schema_version": 2,
-            "run_id": run_id,
-            "validation": {
-                "split": selection_split,
-                "best": best_validation_metrics,
-                "latest": latest_validation_metrics,
-                "selected": selected_validation_metrics,
-                "stability": validation_stability,
-            },
-            "test": {
-                "split": "test" if final_test_metrics is not None else None,
-                "status": "completed" if final_test_metrics is not None else "not_run",
-                "reason": (
-                    None
-                    if final_test_metrics is not None
-                    else (
-                        "validation_only_policy"
-                        if config.evaluation_policy == "validation_only"
-                        else "overfit_check"
-                    )
-                ),
-                "evaluation_policy": config.evaluation_policy,
-                "writer_provenance": writer_info,
-                "checkpoint": (
-                    f"{selected_checkpoint_name}.pt"
-                    if final_test_metrics is not None
-                    else None
-                ),
-                "metrics": final_test_metrics,
-                "bn_recalibration": recalibration_report,
-            },
-        },
-    )
-    _append_experiment_summary(
-        config.output_dir,
-        run_id,
-        config,
-        training_plan,
-        selection_split,
-        selected_validation_metrics,
-        final_test_metrics,
-        resource_profile,
-        curves,
-    )
-    logger.info(
-        "training completed run_id=%s | %s",
-        run_id,
-        _format_final_metrics(
-            final_metrics, "test" if final_test_metrics is not None else selection_split
-        ),
-    )
-    close_logging(logger)
+        close_logging(logger)
+    final_metrics = distributed.broadcast_object(final_metrics)
+    assert isinstance(final_metrics, dict)
     return final_metrics
+
+
+def _distributed_metadata(distributed: DistributedContext) -> dict[str, object]:
+    return {
+        "enabled": distributed.enabled,
+        "rank": distributed.rank,
+        "world_size": distributed.world_size,
+        "local_rank": distributed.local_rank,
+        "backend": distributed.backend,
+        "device": distributed.device,
+    }
+
+
+def _checkpoint_metadata(
+    config: TrainingConfig,
+    training_plan: BatchTrainingPlan,
+    model: torch.nn.Module,
+    active_num_classes: int,
+    output_dir: Path,
+    validation_metrics: dict[str, float],
+    selection_split: str,
+    has_test_set: bool,
+    writer_info: dict[str, object],
+    class_id_map: dict[int, int] | None,
+    distributed: DistributedContext,
+) -> dict[str, object]:
+    head = getattr(model, "classification_head", "softmax")
+    has_margin_head = head in {"cosface", "arcface"}
+    return {
+        "schema_version": 7,
+        "model": _model_metadata(model, config, active_num_classes),
+        "training": {
+            "loss": "cross_entropy",
+            "label_smoothing": config.label_smoothing,
+            "margin_schedule": "linear_warmup" if has_margin_head else "disabled",
+            "margin_warmup_ratio": (
+                config.margin_warmup_ratio if has_margin_head else 0.0
+            ),
+            "resolved_margin_warmup_epochs": (
+                _margin_warmup_epochs(
+                    training_plan.resolved_epochs, config.margin_warmup_ratio
+                )
+                if has_margin_head
+                else 0
+            ),
+            "optimizer_step_policy": config.optimizer_step_policy,
+            "reference_batch_size": config.reference_batch_size,
+            "batch_size": config.batch_size,
+            "effective_global_batch_size": training_plan.effective_global_batch_size,
+            "distributed": _distributed_metadata(distributed),
+            "configured_epochs": config.epochs,
+            "resolved_epochs": training_plan.resolved_epochs,
+            "steps_per_epoch": training_plan.steps_per_epoch,
+            "reference_steps_per_epoch": training_plan.reference_steps_per_epoch,
+            "total_optimizer_steps": training_plan.total_optimizer_steps,
+            "learning_rate_scaling": config.learning_rate_scaling,
+            "base_learning_rate": config.learning_rate,
+            "resolved_learning_rate": training_plan.resolved_learning_rate,
+            "lr_warmup_ratio": config.lr_warmup_ratio,
+            "warmup_steps": training_plan.warmup_steps,
+            "augmentation": "random_affine_and_blur",
+        },
+        "preprocess": {"image_size": config.image_size, "margin": 4},
+        "selection": {"split": selection_split, "metrics": validation_metrics},
+        "test": {
+            "split": "test" if has_test_set else None,
+            "status": "not_run",
+            "evaluation_policy": config.evaluation_policy,
+            "writer_provenance": writer_info,
+            "metrics": None,
+        },
+        "manifest_digest": file_digest(config.manifest_path),
+        "labels_digest": file_digest(output_dir / "labels.json"),
+        "class_subset_digest": (
+            file_digest(output_dir / "class_subset.json")
+            if class_id_map is not None
+            else None
+        ),
+    }
+
+
+def _metrics_payload(
+    run_id: str,
+    selection_split: str,
+    best_validation_metrics: dict[str, float],
+    latest_validation_metrics: dict[str, float] | None,
+    validation_stability: dict | None,
+    has_test_set: bool,
+    config: TrainingConfig,
+    writer_info: dict[str, object],
+    selected_validation_metrics: dict[str, float] | None = None,
+    final_test_metrics: dict[str, float] | None = None,
+    selected_checkpoint_name: str | None = None,
+    recalibration_report: dict | None = None,
+) -> dict[str, object]:
+    validation: dict[str, object] = {
+        "split": selection_split,
+        "best": best_validation_metrics,
+        "latest": latest_validation_metrics,
+        "stability": validation_stability,
+    }
+    if selected_validation_metrics is not None:
+        validation["selected"] = selected_validation_metrics
+    return {
+        "schema_version": 2,
+        "run_id": run_id,
+        "validation": validation,
+        "test": {
+            "split": "test" if final_test_metrics is not None else None,
+            "status": "completed" if final_test_metrics is not None else "not_run",
+            "reason": (
+                None
+                if final_test_metrics is not None
+                else (
+                    "validation_only_policy"
+                    if config.evaluation_policy == "validation_only"
+                    else "overfit_check"
+                )
+            ),
+            "evaluation_policy": config.evaluation_policy,
+            "writer_provenance": writer_info,
+            "checkpoint": (
+                f"{selected_checkpoint_name}.pt"
+                if final_test_metrics is not None
+                and selected_checkpoint_name is not None
+                else None
+            ),
+            "metrics": final_test_metrics,
+            "bn_recalibration": recalibration_report,
+            "available": has_test_set,
+        },
+    }
 
 
 def _validate_training_config(config: TrainingConfig) -> None:
@@ -659,6 +785,8 @@ def _validate_training_config(config: TrainingConfig) -> None:
         )
     if config.reproducibility_mode not in {"seeded", "strict"}:
         raise ValueError("reproducibility_mode must be one of: seeded, strict")
+    if config.distributed_backend not in {"auto", "nccl", "gloo"}:
+        raise ValueError("distributed_backend must be one of: auto, nccl, gloo")
     if config.epochs < 1:
         raise ValueError("epochs must be positive")
     if config.batch_size < 1:
@@ -778,14 +906,17 @@ def _model_metadata(
     return metadata
 
 
-def _configure_reproducibility(config: TrainingConfig) -> dict[str, object]:
+def _configure_reproducibility(
+    config: TrainingConfig, rank: int = 0
+) -> dict[str, object]:
     strict = config.reproducibility_mode == "strict"
     if strict:
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    random_seed(config.seed)
-    torch.manual_seed(config.seed)
+    resolved_seed = config.seed + rank
+    random_seed(resolved_seed)
+    torch.manual_seed(resolved_seed)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(config.seed)
+        torch.cuda.manual_seed_all(resolved_seed)
     torch.use_deterministic_algorithms(strict)
     if torch.backends.cudnn.is_available():
         torch.backends.cudnn.deterministic = strict
@@ -793,6 +924,7 @@ def _configure_reproducibility(config: TrainingConfig) -> dict[str, object]:
     return {
         "mode": config.reproducibility_mode,
         "seed": config.seed,
+        "rank_seed": resolved_seed,
         "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
         "cudnn_deterministic": torch.backends.cudnn.deterministic,
         "cudnn_benchmark": torch.backends.cudnn.benchmark,
@@ -805,10 +937,14 @@ def _configure_reproducibility(config: TrainingConfig) -> dict[str, object]:
 
 
 def _build_batch_training_plan(
-    config: TrainingConfig, train_samples: int, steps_per_epoch: int
+    config: TrainingConfig,
+    train_samples: int,
+    steps_per_epoch: int,
+    world_size: int = 1,
 ) -> BatchTrainingPlan:
-    if train_samples < 1 or steps_per_epoch < 1:
+    if train_samples < 1 or steps_per_epoch < 1 or world_size < 1:
         raise ValueError("training split must contain at least one batch")
+    effective_global_batch_size = config.batch_size * world_size
     reference_steps_per_epoch = math.ceil(train_samples / config.reference_batch_size)
     configured_steps = config.epochs * steps_per_epoch
     reference_steps = config.epochs * reference_steps_per_epoch
@@ -818,7 +954,9 @@ def _build_batch_training_plan(
         else configured_steps
     )
     scale = _learning_rate_scale(
-        config.batch_size, config.reference_batch_size, config.learning_rate_scaling
+        effective_global_batch_size,
+        config.reference_batch_size,
+        config.learning_rate_scaling,
     )
     return BatchTrainingPlan(
         configured_epochs=config.epochs,
@@ -834,6 +972,8 @@ def _build_batch_training_plan(
         resolved_learning_rate=config.learning_rate * scale,
         resolved_scheduler_min_lr=config.scheduler_min_lr * scale,
         warmup_steps=math.ceil(total_optimizer_steps * config.lr_warmup_ratio),
+        world_size=world_size,
+        effective_global_batch_size=effective_global_batch_size,
     )
 
 
@@ -930,6 +1070,21 @@ def _data_loader_options(config: TrainingConfig, device: str) -> dict:
     if start_method != "auto":
         options["multiprocessing_context"] = start_method
     return options
+
+
+def _train_sampler(
+    train_set, config: TrainingConfig, distributed: DistributedContext
+) -> DistributedSampler | None:
+    if not distributed.enabled:
+        return None
+    return DistributedSampler(
+        train_set,
+        num_replicas=distributed.world_size,
+        rank=distributed.rank,
+        shuffle=True,
+        seed=config.seed,
+        drop_last=False,
+    )
 
 
 def _margin_warmup_epochs(total_epochs: int, warmup_ratio: float) -> int:
@@ -1085,6 +1240,8 @@ def _append_experiment_summary(
         "epochs",
         "resolved_epochs",
         "batch_size",
+        "world_size",
+        "effective_global_batch_size",
         "optimizer_step_policy",
         "reference_batch_size",
         "total_optimizer_steps",
@@ -1197,6 +1354,10 @@ def _append_experiment_summary(
                 "epochs": config.epochs,
                 "resolved_epochs": training_plan.resolved_epochs,
                 "batch_size": config.batch_size,
+                "world_size": training_plan.world_size,
+                "effective_global_batch_size": (
+                    training_plan.effective_global_batch_size
+                ),
                 "optimizer_step_policy": config.optimizer_step_policy,
                 "reference_batch_size": config.reference_batch_size,
                 "total_optimizer_steps": training_plan.total_optimizer_steps,

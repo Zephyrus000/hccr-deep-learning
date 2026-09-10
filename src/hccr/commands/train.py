@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from hccr.models import MODEL_NAMES
@@ -103,6 +104,21 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--angular-margin", type=float, default=0.1)
     parser.add_argument("--margin-warmup-ratio", type=float, default=0.2)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument(
+        "--distributed",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Use one process per GPU under torchrun. Batch size is per GPU; "
+            "the run metadata records the effective global batch."
+        ),
+    )
+    parser.add_argument(
+        "--distributed-backend",
+        choices=("auto", "nccl", "gloo"),
+        default="auto",
+        help="DDP collective backend; auto selects NCCL for CUDA.",
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument(
@@ -186,6 +202,8 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         angular_margin=arguments.angular_margin,
         margin_warmup_ratio=arguments.margin_warmup_ratio,
         device=arguments.device,
+        distributed=arguments.distributed,
+        distributed_backend=arguments.distributed_backend,
         seed=arguments.seed,
         num_workers=arguments.num_workers,
         dataset_backend=arguments.dataset_backend,
@@ -235,5 +253,6 @@ def run(arguments: argparse.Namespace) -> int:
     ]
     if "expected_calibration_error" in metrics:
         summary.append(f"ece={metrics['expected_calibration_error']:.2%}")
-    print("final metrics | " + " | ".join(summary))
+    if os.environ.get("RANK", "0") == "0":
+        print("final metrics | " + " | ".join(summary))
     return 0

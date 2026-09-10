@@ -258,6 +258,48 @@ configured epoch so it receives the same number of optimizer updates as batch
 64. The resolved plan is saved to `batch_training_plan.json`; use
 `--optimizer-step-policy configured_epochs` only when reproducing an older run.
 
+### Single-node multi-GPU training
+
+The training command supports standard single-node PyTorch Distributed Data
+Parallel (DDP). Launch exactly one process per visible GPU with `torchrun`; do
+not start two ordinary `hccr train` processes. For two GPUs:
+
+```bash
+torchrun --standalone --nproc-per-node=2 -m hccr train \
+  --distributed \
+  --device cuda \
+  --manifest data/processed/casia_hwdb/manifest.csv \
+  --dataset-backend lmdb \
+  --output-dir experiments \
+  --image-size 96 \
+  --batch-size 128 \
+  --reference-batch-size 256 \
+  --num-workers 16
+```
+
+`--batch-size` is **per GPU**: the example has an effective global batch of
+256. This value, the DDP world size, rank-zero device, and resolved learning
+rate are recorded in `batch_training_plan.json`, `metadata.json`, and checkpoint
+metadata. If you retain `--batch-size 256` on two GPUs, the global batch becomes
+512 and the configured LR scaling policy is applied from that value.
+
+DDP shards only the training dataset. Rank 0 runs validation and the one-time
+final test on the unwrapped checkpoint model, then writes the sole run folder,
+logs, profiles, checkpoints, and reports. This keeps evaluation artifacts
+identical to a single-GPU run and prevents workers from duplicating files.
+
+The sequential experiment runner can launch the same command for every YAML
+job. Add the following top-level field and base argument to a sweep config:
+
+```yaml
+torchrun_nproc_per_node: 2
+base_args:
+  distributed: true
+```
+
+It emits `python -m torch.distributed.run --standalone --nproc-per-node=2 ...`
+for each job. Omit both fields for the existing one-GPU sequential behavior.
+
 ## Experiment sweeps
 
 Validate an experiment matrix without starting training:

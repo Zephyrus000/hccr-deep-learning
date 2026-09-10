@@ -44,6 +44,7 @@ class ExperimentSpec:
     variants: tuple[ExperimentVariant, ...]
     profile_devices: tuple[str, ...] = ("cpu",)
     full_class_num_classes: int | None = 7186
+    torchrun_nproc_per_node: int | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--profile-devices", choices=("cpu", "cuda"), nargs="+")
     parser.add_argument("--full-class-num-classes", type=int)
+    parser.add_argument("--torchrun-nproc-per-node", type=int)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--show-output", action="store_true")
@@ -138,6 +140,26 @@ def load_experiment_spec(
     )
     if full_class_num_classes is not None and full_class_num_classes < 2:
         raise ValueError("full_class_num_classes must be at least 2 or null")
+    torchrun_nproc_per_node = (
+        arguments.torchrun_nproc_per_node
+        if arguments.torchrun_nproc_per_node is not None
+        else raw.get("torchrun_nproc_per_node")
+    )
+    if torchrun_nproc_per_node is not None and torchrun_nproc_per_node < 2:
+        raise ValueError("torchrun_nproc_per_node must be at least 2")
+    if torchrun_nproc_per_node is not None and not base_args.get("distributed"):
+        raise ValueError("torchrun_nproc_per_node requires base_args.distributed=true")
+    disabled_variants = [
+        variant.name
+        for variant in variants
+        if torchrun_nproc_per_node is not None
+        and variant.args.get("distributed") is False
+    ]
+    if disabled_variants:
+        raise ValueError(
+            "torchrun_nproc_per_node cannot disable distributed training in "
+            f"variants: {disabled_variants}"
+        )
     return ExperimentSpec(
         experiment_id=experiment_id,
         manifest=_resolve_from_root(project_root, Path(manifest_value)),
@@ -147,6 +169,7 @@ def load_experiment_spec(
         variants=variants,
         profile_devices=profile_devices,
         full_class_num_classes=full_class_num_classes,
+        torchrun_nproc_per_node=torchrun_nproc_per_node,
     )
 
 
@@ -156,7 +179,7 @@ def build_jobs(spec: ExperimentSpec) -> list[ExperimentJob]:
         for seed in spec.seeds:
             train_args = {**spec.base_args, **variant.args, "seed": seed}
             command = _training_command(spec, train_args)
-            build_hccr_parser().parse_args(list(command[3:]))
+            build_hccr_parser().parse_args(list(command[command.index("train") :]))
             jobs.append(
                 ExperimentJob(
                     key=f"{variant.name}/seed-{seed}",
@@ -245,16 +268,27 @@ def run_experiments(
 def _training_command(
     spec: ExperimentSpec, train_args: dict[str, Any]
 ) -> tuple[str, ...]:
-    command = [
-        sys.executable,
-        "-m",
-        "hccr",
-        "train",
-        "--manifest",
-        str(spec.manifest),
-        "--output-dir",
-        str(spec.output_dir),
-    ]
+    command = [sys.executable]
+    if spec.torchrun_nproc_per_node is not None:
+        command.extend(
+            [
+                "-m",
+                "torch.distributed.run",
+                "--standalone",
+                f"--nproc-per-node={spec.torchrun_nproc_per_node}",
+            ]
+        )
+    command.extend(
+        [
+            "-m",
+            "hccr",
+            "train",
+            "--manifest",
+            str(spec.manifest),
+            "--output-dir",
+            str(spec.output_dir),
+        ]
+    )
     for key, value in train_args.items():
         option = "--" + key.replace("_", "-")
         if isinstance(value, bool):
@@ -729,6 +763,7 @@ def _jsonable_spec(spec: ExperimentSpec) -> dict[str, Any]:
         "variants": [asdict(variant) for variant in spec.variants],
         "profile_devices": list(spec.profile_devices),
         "full_class_num_classes": spec.full_class_num_classes,
+        "torchrun_nproc_per_node": spec.torchrun_nproc_per_node,
     }
 
 

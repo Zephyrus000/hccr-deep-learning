@@ -116,9 +116,11 @@ class AngularMarginHeadTests(unittest.TestCase):
         targets = torch.tensor([0, 2, 4])
         inference_logits = model(inputs)
         training_logits = model.training_logits(inputs, targets)
+        ddp_callable_logits = model(inputs, targets, 1.0)
         differences = inference_logits - training_logits
         expected = torch.zeros_like(differences).scatter(1, targets.unsqueeze(1), 1.6)
         torch.testing.assert_close(differences, expected)
+        torch.testing.assert_close(ddp_callable_logits, training_logits)
 
     def test_arcface_keeps_target_free_inference_and_supports_warmup(self) -> None:
         model = EfficientHCCRNet(

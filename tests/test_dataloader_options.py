@@ -6,7 +6,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from hccr.training.workflow import TrainingConfig, _data_loader_options
+from hccr.training.distributed import DistributedContext
+from hccr.training.workflow import TrainingConfig, _data_loader_options, _train_sampler
 
 
 class DataLoaderOptionsTests(unittest.TestCase):
@@ -56,3 +57,25 @@ class DataLoaderOptionsTests(unittest.TestCase):
         values = torch.cat([batch[0] for batch in loader])
 
         self.assertEqual(values.tolist(), list(range(8)))
+
+    def test_distributed_train_sampler_shards_one_rank_without_shuffle_conflict(
+        self,
+    ) -> None:
+        dataset = TensorDataset(torch.arange(8))
+        context = DistributedContext(
+            enabled=True,
+            rank=1,
+            world_size=2,
+            local_rank=1,
+            device="cuda:1",
+            backend="nccl",
+        )
+
+        sampler = _train_sampler(dataset, self._config(), context)
+        loader = DataLoader(dataset, batch_size=2, sampler=sampler, shuffle=False)
+
+        self.assertIsNotNone(sampler)
+        assert sampler is not None
+        self.assertEqual(sampler.num_replicas, 2)
+        self.assertEqual(sampler.rank, 1)
+        self.assertEqual(len(list(loader)), 2)

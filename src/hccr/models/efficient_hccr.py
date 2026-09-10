@@ -329,8 +329,21 @@ class EfficientHCCRNet(nn.Module):
         pooled = self.embedding_dropout(torch.flatten(self.pool(features), 1))
         return self.embedding_projection(pooled)
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return self.classifier(self._forward_embedding(inputs))
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        targets: torch.Tensor | None = None,
+        margin_multiplier: float = 1.0,
+    ) -> torch.Tensor:
+        """Return inference logits or target-margin training logits.
+
+        Keeping the margin path inside ``forward`` lets a DDP wrapper observe
+        the complete forward/backward graph instead of bypassing its reducer.
+        """
+        embeddings = self._forward_embedding(inputs)
+        if isinstance(self.classifier, AngularMarginClassifier):
+            return self.classifier(embeddings, targets, margin_multiplier)
+        return self.classifier(embeddings)
 
     def training_logits(
         self,
@@ -338,10 +351,8 @@ class EfficientHCCRNet(nn.Module):
         targets: torch.Tensor,
         margin_multiplier: float = 1.0,
     ) -> torch.Tensor:
-        embeddings = self._forward_embedding(inputs)
-        if isinstance(self.classifier, AngularMarginClassifier):
-            return self.classifier(embeddings, targets, margin_multiplier)
-        return self.classifier(embeddings)
+        """Compatibility wrapper for callers outside DDP training."""
+        return self(inputs, targets, margin_multiplier)
 
 
 def build_model(name: str, **kwargs) -> nn.Module:

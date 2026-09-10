@@ -64,6 +64,14 @@ providing argument validation and discoverable help.
    choose the recalibrated copy only when validation top-1 improves.
 8. Append one row to `experiment_summary.csv` and return best metrics.
 
+When `distributed=True`, launch the CLI with `torchrun` and one process per
+CUDA GPU. Each process receives a deterministic `DistributedSampler` shard of
+the training data, while rank 0 alone evaluates validation/final test and
+writes artifacts. `batch_size` remains per GPU; the persisted plan and summary
+also record `world_size` and `effective_global_batch_size` for comparable runs.
+The sequential experiment runner exposes the same launcher with
+`torchrun_nproc_per_node: 2` plus `base_args.distributed: true` in its YAML.
+
 Schedulers are `none`, per-optimizer-step `cosine`, and validation-based
 `plateau`. The default batch-aware plan treats batch 64 as the reference:
 larger batches receive enough physical epochs to retain the reference optimizer

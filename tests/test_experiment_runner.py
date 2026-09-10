@@ -22,6 +22,54 @@ from hccr.models import EfficientHCCRNet, build_model
 
 
 class ExperimentRunnerTests(unittest.TestCase):
+    def test_distributed_experiment_command_uses_torchrun(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            arguments = build_parser().parse_args(
+                [
+                    "--experiment-id",
+                    "distributed",
+                    "--set",
+                    "distributed=true",
+                    "--torchrun-nproc-per-node",
+                    "2",
+                ]
+            )
+            spec = load_experiment_spec(arguments, Path(directory))
+            job = build_jobs(spec)[0]
+
+        self.assertEqual(spec.torchrun_nproc_per_node, 2)
+        self.assertEqual(
+            job.command[1:8],
+            (
+                "-m",
+                "torch.distributed.run",
+                "--standalone",
+                "--nproc-per-node=2",
+                "-m",
+                "hccr",
+                "train",
+            ),
+        )
+        self.assertIn("--distributed", job.command)
+
+    def test_distributed_experiment_rejects_a_variant_that_disables_ddp(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            arguments = build_parser().parse_args(
+                [
+                    "--experiment-id",
+                    "invalid-distributed",
+                    "--set",
+                    "distributed=true",
+                    "--variant",
+                    '{"name":"invalid","args":{"distributed":false}}',
+                    "--torchrun-nproc-per-node",
+                    "2",
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "cannot disable"):
+                load_experiment_spec(arguments, Path(directory))
+
     def test_checked_in_thesis_comparison_configs_build_expected_commands(
         self,
     ) -> None:
