@@ -105,6 +105,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--margin-warmup-ratio", type=float, default=0.2)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument(
+        "--precision",
+        choices=("auto", "float32", "float16", "bfloat16"),
+        default="float32",
+        help=(
+            "Training/evaluation arithmetic. FP32 is reproducible default; "
+            "use bfloat16 on supported CUDA GPUs or auto to select it."
+        ),
+    )
+    parser.add_argument(
         "--distributed",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -202,6 +211,7 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         angular_margin=arguments.angular_margin,
         margin_warmup_ratio=arguments.margin_warmup_ratio,
         device=arguments.device,
+        precision=arguments.precision,
         distributed=arguments.distributed,
         distributed_backend=arguments.distributed_backend,
         seed=arguments.seed,

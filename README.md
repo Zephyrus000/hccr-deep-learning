@@ -225,6 +225,7 @@ Use `hccr train --help` for the complete option list. Important controls are:
 | `--lmdb-path` | Optional non-default LMDB file path. |
 | `--bn-recalibration-batches` | Post-training BN-statistics recalibration. |
 | `--device` | `auto`, `cpu`, or `cuda`. |
+| `--precision` | `float32` (default), `float16`, `bfloat16`, or `auto`. Use BF16 on RTX 4090/Ampere-or-newer CUDA GPUs; FP16 uses gradient scaling. |
 
 Each run is written to `experiments/<run-id>/`. Core artifacts include:
 
@@ -257,6 +258,13 @@ than only a physical-epoch count. For example, with a 64-sample reference,
 configured epoch so it receives the same number of optimizer updates as batch
 64. The resolved plan is saved to `batch_training_plan.json`; use
 `--optimizer-step-policy configured_epochs` only when reproducing an older run.
+
+Mixed precision keeps model weights and persisted checkpoints in FP32. When
+selected, autocast accelerates the convolutional forward pass; CosFace/ArcFace
+normalization, cross-entropy, evaluation metrics, and diagnostics stay in FP32.
+`metadata.json`, checkpoint metadata, `metrics.json`, and the experiment summary
+record both the requested and resolved precision so CPU/FP32/BF16 runs are not
+mistakenly compared as identical conditions.
 
 ### Single-node multi-GPU training
 

@@ -13,6 +13,7 @@ from tqdm.auto import tqdm
 
 from hccr.training.diagnostics import ArchitectureDiagnostics
 from hccr.training.distributed import DistributedContext, unwrap_model
+from hccr.training.precision import PrecisionContext
 
 
 def train_epoch(
@@ -25,6 +26,7 @@ def train_epoch(
     batch_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     max_batches: int | None = None,
     distributed: DistributedContext | None = None,
+    precision: PrecisionContext | None = None,
 ) -> dict[str, Any]:
     model.train()
     base_model = unwrap_model(model)
@@ -41,6 +43,8 @@ def train_epoch(
     forward_backward_seconds = 0.0
     previous_batch_finished = started_at
     learning_rate_start = optimizer.param_groups[0]["lr"]
+    precision = precision or PrecisionContext("float32", "float32", "cpu", None, None)
+    optimizer_steps = 0
     with ArchitectureDiagnostics(base_model) as architecture_diagnostics:
         progress = tqdm(
             loader,
@@ -57,13 +61,15 @@ def train_epoch(
             images, targets = images.to(device), targets.to(device)
             optimizer.zero_grad(set_to_none=True)
             training_logits = getattr(base_model, "training_logits", None)
-            logits = (
-                model(images, targets, margin_multiplier)
-                if training_logits is not None
-                else model(images)
-            )
-            loss = criterion(logits, targets)
-            loss.backward()
+            with precision.autocast():
+                logits = (
+                    model(images, targets, margin_multiplier)
+                    if training_logits is not None
+                    else model(images)
+                )
+            loss = criterion(logits.float(), targets)
+            precision.backward(loss)
+            precision.unscale_(optimizer)
             architecture_diagnostics.record_gradients()
             squared_norm = sum(
                 parameter.grad.detach().pow(2).sum().item()
@@ -71,9 +77,10 @@ def train_epoch(
                 if parameter.grad is not None
             )
             gradient_norms.append(math.sqrt(squared_norm))
-            optimizer.step()
-            if batch_scheduler is not None:
+            optimizer_stepped = precision.step(optimizer)
+            if batch_scheduler is not None and optimizer_stepped:
                 batch_scheduler.step()
+            optimizer_steps += int(optimizer_stepped)
             forward_backward_seconds += time.perf_counter() - batch_started_at
             total_loss += loss.item() * targets.numel()
             total_samples += targets.numel()
@@ -106,7 +113,7 @@ def train_epoch(
         "batch_loss_squared_sum": sum(value**2 for value in loss_values),
         "gradient_norm_sum": sum(gradient_norms),
         "gradient_norm_max": max(gradient_norms),
-        "optimizer_steps": len(loss_values),
+        "optimizer_steps": optimizer_steps,
         "learning_rate": optimizer.param_groups[0]["lr"],
         "learning_rate_start": learning_rate_start,
         "margin_multiplier": margin_multiplier,

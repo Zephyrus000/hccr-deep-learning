@@ -42,7 +42,7 @@ base_args:
   scheduler: cosine
   scheduler_min_lr: 1.0e-6
   early_stopping_patience: 0
-  num_workers: 0
+  num_workers: 16
   benchmark_warmup_iterations: 10
   benchmark_iterations: 50
   benchmark_repetitions: 3

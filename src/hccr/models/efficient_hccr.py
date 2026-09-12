@@ -181,26 +181,30 @@ class AngularMarginClassifier(nn.Linear):
         targets: torch.Tensor | None = None,
         margin_multiplier: float = 1.0,
     ) -> torch.Tensor:
-        normalized_weight = (
-            F.normalize(self.weight, dim=1)
-            if self.training or self._normalized_weight.numel() == 0
-            else self._normalized_weight
-        )
-        cosine = F.linear(F.normalize(embeddings, dim=1), normalized_weight).clamp(
-            -1 + 1e-7, 1 - 1e-7
-        )
-        if targets is None or margin_multiplier == 0:
-            return cosine * self.scale
-        if not 0 <= margin_multiplier <= 1:
-            raise ValueError("margin_multiplier must be between 0 and 1")
-        target_cosine = cosine.gather(1, targets.unsqueeze(1))
-        margin = self.margin * margin_multiplier
-        target_logit = (
-            target_cosine - margin
-            if self.kind == "cosface"
-            else torch.cos(torch.acos(target_cosine) + margin)
-        )
-        return cosine.scatter(1, targets.unsqueeze(1), target_logit) * self.scale
+        # Cosine normalization and ArcFace acos are sensitive to reduced
+        # precision. Keep this small classification calculation in FP32 while
+        # AMP accelerates the convolutional backbone and embedding projection.
+        with torch.autocast(device_type=embeddings.device.type, enabled=False):
+            normalized_weight = (
+                F.normalize(self.weight.float(), dim=1)
+                if self.training or self._normalized_weight.numel() == 0
+                else self._normalized_weight.float()
+            )
+            cosine = F.linear(
+                F.normalize(embeddings.float(), dim=1), normalized_weight
+            ).clamp(-1 + 1e-7, 1 - 1e-7)
+            if targets is None or margin_multiplier == 0:
+                return cosine * self.scale
+            if not 0 <= margin_multiplier <= 1:
+                raise ValueError("margin_multiplier must be between 0 and 1")
+            target_cosine = cosine.gather(1, targets.unsqueeze(1))
+            margin = self.margin * margin_multiplier
+            target_logit = (
+                target_cosine - margin
+                if self.kind == "cosface"
+                else torch.cos(torch.acos(target_cosine) + margin)
+            )
+            return cosine.scatter(1, targets.unsqueeze(1), target_logit) * self.scale
 
 
 class EfficientHCCRNet(nn.Module):

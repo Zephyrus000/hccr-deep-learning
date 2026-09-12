@@ -107,7 +107,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertEqual(checkpoint_metadata["model"]["dropout"], 0.1)
             self.assertEqual(checkpoint_metadata["model"]["stem_stride"], 2)
             self.assertTrue(checkpoint_metadata["model"]["reparameterize_depthwise"])
-            self.assertEqual(checkpoint_metadata["schema_version"], 7)
+            self.assertEqual(checkpoint_metadata["schema_version"], 8)
             self.assertEqual(
                 checkpoint_metadata["model"]["classification_head"], "cosface"
             )
@@ -140,6 +140,13 @@ class TrainingWorkflowTests(unittest.TestCase):
                         "local_rank": 0,
                         "backend": None,
                         "device": "cuda",
+                    },
+                    "precision": {
+                        "requested": "float32",
+                        "resolved": "float32",
+                        "autocast_enabled": False,
+                        "autocast_dtype": None,
+                        "grad_scaler": False,
                     },
                     "configured_epochs": 2,
                     "resolved_epochs": 2,
@@ -226,6 +233,8 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertIn("optimizer_step_policy", summary_header)
             self.assertIn("batch_size", summary_header)
             self.assertIn("effective_global_batch_size", summary_header)
+            self.assertIn("precision_requested", summary_header)
+            self.assertIn("precision_resolved", summary_header)
             self.assertIn("total_optimizer_steps", summary_header)
             self.assertNotIn("margin_warmup_epochs", summary_header)
             summary_rows = (

@@ -14,6 +14,7 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | `EarlyStopping` | Track validation top-1 with patience and minimum delta. |
 | `profile_model(...)` | Measure parameters, MACs, eager/optimized latency, and device metadata. |
 | `write_training_diagnostics(...)` | Persist epoch diagnostic history. |
+| `resolve_precision(...)` | Resolve FP32, FP16+GradScaler, or BF16 autocast safely per device. |
 
 ## Module map
 
@@ -25,6 +26,7 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | `callbacks.py` | Early-stopping state. |
 | `artifacts.py` | Checkpoints, metadata, digests, and recalibrated variants. |
 | `diagnostics.py` | Complexity, latency, BatchNorm, stability, activation, and gradient diagnostics. |
+| `precision.py` | AMP policy, autocast context, FP16 gradient scaling, and run metadata. |
 
 ## Minimal Python usage
 
@@ -71,6 +73,13 @@ writes artifacts. `batch_size` remains per GPU; the persisted plan and summary
 also record `world_size` and `effective_global_batch_size` for comparable runs.
 The sequential experiment runner exposes the same launcher with
 `torchrun_nproc_per_node: 2` plus `base_args.distributed: true` in its YAML.
+
+`precision="float32"` remains the default for reproducibility. On a supported
+CUDA GPU, set `precision="bfloat16"` (recommended for RTX 4090) or
+`precision="auto"`; the latter selects BF16 when supported and otherwise FP16
+with `GradScaler`. The convolutional backbone uses autocast, whereas angular
+logits, loss, validation/test metrics, and gradient diagnostics use FP32. Each
+run records requested and resolved precision in its metadata and summary.
 
 Schedulers are `none`, per-optimizer-step `cosine`, and validation-based
 `plateau`. The default batch-aware plan treats batch 64 as the reference:

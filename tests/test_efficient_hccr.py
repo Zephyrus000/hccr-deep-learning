@@ -5,6 +5,7 @@ import unittest
 import torch
 
 from hccr.models import EfficientHCCRNet, build_model
+from hccr.models.efficient_hccr import AngularMarginClassifier
 
 
 class EfficientHCCRNetTests(unittest.TestCase):
@@ -103,6 +104,18 @@ class EfficientHCCRArchitectureTests(unittest.TestCase):
 
 
 class AngularMarginHeadTests(unittest.TestCase):
+    def test_angular_logits_stay_float32_inside_cpu_autocast(self) -> None:
+        classifier = AngularMarginClassifier(
+            embedding_dim=4,
+            num_classes=3,
+            kind="cosface",
+            scale=16.0,
+            margin=0.1,
+        ).eval()
+        with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+            logits = classifier(torch.randn(2, 4))
+        self.assertEqual(logits.dtype, torch.float32)
+
     def test_cosface_margin_changes_only_target_logits(self) -> None:
         model = EfficientHCCRNet(
             num_classes=5,

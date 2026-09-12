@@ -45,6 +45,7 @@ from hccr.training.distributed import (
     wrap_model_for_training,
 )
 from hccr.training.losses import build_classification_loss
+from hccr.training.precision import PRECISION_NAMES, PrecisionContext, resolve_precision
 from hccr.training.trainer import train_epoch
 from hccr.utils import close_logging, configure_logging, resolve_device
 from hccr.utils.experiment import initialize_run, new_run_id, write_curves, write_json
@@ -78,6 +79,7 @@ class TrainingConfig:
     angular_margin: float = 0.1
     margin_warmup_ratio: float = 0.2
     device: str = "auto"
+    precision: str = "float32"
     distributed: bool = False
     distributed_backend: str = "auto"
     seed: int = 7
@@ -134,13 +136,16 @@ def run_training(config: TrainingConfig) -> dict[str, float]:
         config.distributed, resolve_device(config.device), config.distributed_backend
     )
     try:
-        return _run_training(config, distributed)
+        precision = resolve_precision(config.precision, distributed.device)
+        return _run_training(config, distributed, precision)
     finally:
         destroy_distributed(distributed)
 
 
 def _run_training(
-    config: TrainingConfig, distributed: DistributedContext
+    config: TrainingConfig,
+    distributed: DistributedContext,
+    precision: PrecisionContext,
 ) -> dict[str, float]:
     reproducibility = _configure_reproducibility(config, distributed.rank)
     device = distributed.device
@@ -166,6 +171,7 @@ def _run_training(
                 "reproducibility": reproducibility,
                 "writer_provenance": writer_info,
                 "distributed": _distributed_metadata(distributed),
+                "precision": precision.metadata(),
             },
             run_id,
         )
@@ -410,6 +416,7 @@ def _run_training(
             scheduler if config.scheduler == "cosine" else None,
             max_batches,
             distributed,
+            precision,
         )
         optimizer_step_start = global_step
         global_step += int(train_metrics["optimizer_steps"])
@@ -422,6 +429,7 @@ def _run_training(
                 device,
                 class_support=training_class_support,
                 evaluation_name=selection_split,
+                precision=precision,
             )
         validation_metrics = distributed.broadcast_object(validation_metrics)
         assert isinstance(validation_metrics, dict)
@@ -469,6 +477,7 @@ def _run_training(
                         writer_info,
                         class_id_map,
                         distributed,
+                        precision,
                     ),
                 )
                 logger.info("best checkpoint saved epoch=%s", epoch)
@@ -494,6 +503,7 @@ def _run_training(
                     validation_stability,
                     test_set is not None,
                     config,
+                    precision,
                     writer_info,
                 ),
             )
@@ -544,6 +554,7 @@ def _run_training(
                 device,
                 class_support=training_class_support,
                 evaluation_name=selection_split,
+                precision=precision,
             )
             recalibration_report = {
                 "source_checkpoint": "checkpoint.pt",
@@ -597,6 +608,7 @@ def _run_training(
                 label_mapping,
                 training_class_support,
                 evaluation_name="test",
+                precision=precision,
             )
             record_final_test_metrics(
                 output_dir, final_test_metrics, selected_checkpoint_name
@@ -612,6 +624,7 @@ def _run_training(
                 validation_stability,
                 test_set is not None,
                 config,
+                precision,
                 writer_info,
                 selected_validation_metrics,
                 final_test_metrics,
@@ -623,6 +636,7 @@ def _run_training(
             config.output_dir,
             run_id,
             config,
+            precision,
             training_plan,
             selection_split,
             selected_validation_metrics,
@@ -667,11 +681,12 @@ def _checkpoint_metadata(
     writer_info: dict[str, object],
     class_id_map: dict[int, int] | None,
     distributed: DistributedContext,
+    precision: PrecisionContext,
 ) -> dict[str, object]:
     head = getattr(model, "classification_head", "softmax")
     has_margin_head = head in {"cosface", "arcface"}
     return {
-        "schema_version": 7,
+        "schema_version": 8,
         "model": _model_metadata(model, config, active_num_classes),
         "training": {
             "loss": "cross_entropy",
@@ -692,6 +707,7 @@ def _checkpoint_metadata(
             "batch_size": config.batch_size,
             "effective_global_batch_size": training_plan.effective_global_batch_size,
             "distributed": _distributed_metadata(distributed),
+            "precision": precision.metadata(),
             "configured_epochs": config.epochs,
             "resolved_epochs": training_plan.resolved_epochs,
             "steps_per_epoch": training_plan.steps_per_epoch,
@@ -731,6 +747,7 @@ def _metrics_payload(
     validation_stability: dict | None,
     has_test_set: bool,
     config: TrainingConfig,
+    precision: PrecisionContext,
     writer_info: dict[str, object],
     selected_validation_metrics: dict[str, float] | None = None,
     final_test_metrics: dict[str, float] | None = None,
@@ -748,6 +765,7 @@ def _metrics_payload(
     return {
         "schema_version": 2,
         "run_id": run_id,
+        "precision": precision.metadata(),
         "validation": validation,
         "test": {
             "split": "test" if final_test_metrics is not None else None,
@@ -787,6 +805,8 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("reproducibility_mode must be one of: seeded, strict")
     if config.distributed_backend not in {"auto", "nccl", "gloo"}:
         raise ValueError("distributed_backend must be one of: auto, nccl, gloo")
+    if config.precision not in PRECISION_NAMES:
+        raise ValueError(f"precision must be one of: {', '.join(PRECISION_NAMES)}")
     if config.epochs < 1:
         raise ValueError("epochs must be positive")
     if config.batch_size < 1:
@@ -1205,6 +1225,7 @@ def _append_experiment_summary(
     experiments_dir: Path,
     run_id: str,
     config: TrainingConfig,
+    precision: PrecisionContext,
     training_plan: BatchTrainingPlan,
     selection_split: str,
     validation_metrics: dict[str, float],
@@ -1224,6 +1245,8 @@ def _append_experiment_summary(
         "selection_split",
         "test_split",
         "model",
+        "precision_requested",
+        "precision_resolved",
         "effective_input_channels",
         "width",
         "backbone_output_channels",
@@ -1315,6 +1338,8 @@ def _append_experiment_summary(
                 "selection_split": selection_split,
                 "test_split": "test" if test_metrics is not None else None,
                 "model": config.model,
+                "precision_requested": precision.requested,
+                "precision_resolved": precision.resolved,
                 "effective_input_channels": resource_profile[
                     "effective_input_channels"
                 ],
