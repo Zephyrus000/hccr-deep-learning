@@ -29,6 +29,39 @@ def profile_model(
     preprocessing_transform: Callable[[Image.Image], Image.Image] | None = None,
     full_class_num_classes: int = 7186,
 ) -> dict[str, Any]:
+    """Profile a model without leaking eval mode into its caller."""
+    original_modes = {module: module.training for module in model.modules()}
+    try:
+        return _profile_model(
+            model,
+            image_size,
+            device,
+            output_dir,
+            warmup_iterations,
+            benchmark_iterations,
+            benchmark_repetitions,
+            preprocessing_transform,
+            full_class_num_classes,
+        )
+    finally:
+        # Restore parents before children so deliberately mixed submodule modes
+        # are preserved.  Calling train(), rather than assigning .training,
+        # also lets stateful modules clear or rebuild mode-specific caches.
+        for module, was_training in original_modes.items():
+            module.train(was_training)
+
+
+def _profile_model(
+    model: nn.Module,
+    image_size: int,
+    device: str,
+    output_dir: Path,
+    warmup_iterations: int,
+    benchmark_iterations: int,
+    benchmark_repetitions: int,
+    preprocessing_transform: Callable[[Image.Image], Image.Image] | None,
+    full_class_num_classes: int,
+) -> dict[str, Any]:
     """Measure complexity and robust batch-1/8/32 forward-pass latency."""
     if min(warmup_iterations, benchmark_iterations, benchmark_repetitions) < 1:
         raise ValueError(

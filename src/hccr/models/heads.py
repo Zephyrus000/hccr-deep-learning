@@ -26,14 +26,16 @@ class AngularMarginClassifier(nn.Linear):
         if not 0 <= margin < torch.pi / 2:
             raise ValueError("angular_margin must be in [0, pi/2)")
         self.kind, self.scale, self.margin = kind, scale, margin
-        self.register_buffer("_normalized_weight", torch.empty(0), persistent=False)
+        # This is an inference-only cache, not model state.  Registering it as a
+        # buffer makes DDP synchronize it even though its shape changes between
+        # train and eval mode.  Rank-zero-only profiling can therefore leave
+        # different buffer layouts across ranks before DDP construction.
+        self._normalized_weight: torch.Tensor | None = None
 
     def train(self, mode: bool = True) -> AngularMarginClassifier:
         super().train(mode)
         if mode:
-            self._normalized_weight = torch.empty(
-                0, device=self.weight.device, dtype=self.weight.dtype
-            )
+            self._normalized_weight = None
         else:
             self._normalized_weight = F.normalize(
                 self.weight.detach(), dim=1
@@ -49,11 +51,17 @@ class AngularMarginClassifier(nn.Linear):
         # Cosine normalization and ArcFace acos are sensitive to reduced
         # precision. Keep the head in FP32 while AMP accelerates the backbone.
         with torch.autocast(device_type=embeddings.device.type, enabled=False):
-            normalized_weight = (
-                F.normalize(self.weight.float(), dim=1)
-                if self.training or self._normalized_weight.numel() == 0
-                else self._normalized_weight.float()
+            cached_weight = self._normalized_weight
+            cache_is_valid = (
+                cached_weight is not None
+                and cached_weight.device == self.weight.device
+                and cached_weight.dtype == self.weight.dtype
             )
+            if self.training or not cache_is_valid:
+                normalized_weight = F.normalize(self.weight.float(), dim=1)
+            else:
+                assert cached_weight is not None
+                normalized_weight = cached_weight.float()
             cosine = F.linear(
                 F.normalize(embeddings.float(), dim=1), normalized_weight
             ).clamp(-1 + 1e-7, 1 - 1e-7)

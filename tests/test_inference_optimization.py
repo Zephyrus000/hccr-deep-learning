@@ -51,14 +51,50 @@ class InferenceOptimizationTests(unittest.TestCase):
 
     def test_eval_caches_normalized_classifier_weight(self) -> None:
         model = EfficientHCCRNet(num_classes=11, width=8).eval()
-        cached_pointer = model.classifier._normalized_weight.data_ptr()
+        self.assertNotIn("_normalized_weight", dict(model.classifier.named_buffers()))
+        cached_weight = model.classifier._normalized_weight
+        self.assertIsNotNone(cached_weight)
+        assert cached_weight is not None
+        cached_pointer = cached_weight.data_ptr()
         inputs = torch.rand(2, 1, 32, 32)
 
         first = model(inputs)
         second = model(inputs)
 
-        self.assertEqual(model.classifier._normalized_weight.data_ptr(), cached_pointer)
+        current_cache = model.classifier._normalized_weight
+        self.assertIsNotNone(current_cache)
+        assert current_cache is not None
+        self.assertEqual(current_cache.data_ptr(), cached_pointer)
         torch.testing.assert_close(first, second)
+
+    def test_profile_restores_training_state_and_ddp_buffer_layout(self) -> None:
+        profiled_model = EfficientHCCRNet(num_classes=11, width=4)
+        peer_model = EfficientHCCRNet(num_classes=11, width=4)
+        expected_buffers = {
+            name: tuple(buffer.shape) for name, buffer in peer_model.named_buffers()
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            profile_model(
+                profiled_model,
+                image_size=16,
+                device="cpu",
+                output_dir=Path(directory),
+                warmup_iterations=1,
+                benchmark_iterations=1,
+                benchmark_repetitions=1,
+            )
+
+        self.assertTrue(profiled_model.training)
+        self.assertTrue(profiled_model.classifier.training)
+        self.assertIsNone(profiled_model.classifier._normalized_weight)
+        self.assertEqual(
+            {
+                name: tuple(buffer.shape)
+                for name, buffer in profiled_model.named_buffers()
+            },
+            expected_buffers,
+        )
 
     def test_optimized_copy_preserves_logits_and_folds_batch_norm(self) -> None:
         model = EfficientHCCRNet(
