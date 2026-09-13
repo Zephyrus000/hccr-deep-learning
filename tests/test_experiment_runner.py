@@ -13,6 +13,7 @@ from hccr.experiment_runner import (
     _model_from_run,
     _paired_metric_delta,
     _summarize,
+    _validate_hardware_requirements,
     build_jobs,
     build_parser,
     load_experiment_spec,
@@ -79,34 +80,53 @@ class ExperimentRunnerTests(unittest.TestCase):
         )
         legacy_jobs = build_jobs(load_experiment_spec(legacy_arguments, root))
         self.assertEqual(
-            [job.key for job in legacy_jobs], ["legacy_efficient_hccr/seed-7"]
+            [job.key for job in legacy_jobs],
+            [
+                "legacy_efficient_hccr/seed-7",
+                "legacy_efficient_hccr/seed-17",
+                "legacy_efficient_hccr/seed-29",
+            ],
         )
         self.assertIn("--no-reparameterize-depthwise", legacy_jobs[0].command)
+        self.assertIn("bfloat16", legacy_jobs[0].command)
 
         arguments = build_parser().parse_args(
             ["--config", str(root / "configs/experiment/thesis_model_comparison.yaml")]
         )
-        jobs = build_jobs(load_experiment_spec(arguments, root))
+        spec = load_experiment_spec(arguments, root)
+        jobs = build_jobs(spec)
         commands = {job.key: job.command for job in jobs}
+        variant_names = [
+            "resnet18_cosface",
+            "mobilenet_v3_small_cosface",
+            "efficientnet_b0_cosface",
+            "shufflenet_v2_x1_0_cosface",
+            "efficient_hccr_20260822T224249Z_c43e969f",
+            "efficient_hccr_multibranch_embed256_backbone320",
+            "efficient_hccr_multibranch_native320",
+            "efficient_hccr_singlebranch_embed256_backbone320",
+        ]
         self.assertEqual(
             list(commands),
             [
-                "new_efficient_hccr/seed-7",
-                "resnet18/seed-7",
-                "mobilenet_v3_small/seed-7",
-                "efficient_hccr_without_reparameterization/seed-7",
-                "efficient_hccr_without_cosface/seed-7",
+                f"{variant}/seed-{seed}"
+                for variant in variant_names
+                for seed in (7, 17, 29)
             ],
         )
-        new_command = commands["new_efficient_hccr/seed-7"]
+        self.assertEqual(len(jobs), 24)
+        self.assertEqual(spec.required_cuda_device_count, 2)
+        self.assertEqual(spec.required_cuda_device_name, "A100-SXM4-40GB")
+        new_command = commands["efficient_hccr_multibranch_embed256_backbone320/seed-7"]
         self.assertIn("efficient_hccr", new_command)
         self.assertEqual(new_command[new_command.index("--image-size") + 1], "96")
         self.assertEqual(new_command[new_command.index("--batch-size") + 1], "256")
         self.assertEqual(new_command[new_command.index("--width") + 1], "80")
         self.assertEqual(
             new_command[
-                new_command.index("--stage-depths")
-                + 1 : new_command.index("--stage-depths")
+                new_command.index("--stage-depths") + 1 : new_command.index(
+                    "--stage-depths"
+                )
                 + 4
             ],
             ("2", "3", "3"),
@@ -115,16 +135,45 @@ class ExperimentRunnerTests(unittest.TestCase):
             new_command[new_command.index("--backbone-output-channels") + 1], "320"
         )
         self.assertEqual(new_command[new_command.index("--embedding-dim") + 1], "256")
-        self.assertEqual(new_command[new_command.index("--num-workers") + 1], "16")
+        self.assertEqual(new_command[new_command.index("--num-workers") + 1], "12")
+        self.assertIn("bfloat16", new_command)
+        self.assertIn("--distributed", new_command)
         self.assertIn("--reparameterize-depthwise", new_command)
         self.assertIn("cosface", new_command)
-        self.assertIn("resnet18", commands["resnet18/seed-7"])
-        self.assertIn("mobilenet_v3_small", commands["mobilenet_v3_small/seed-7"])
+        for variant, model_name in (
+            ("resnet18_cosface", "resnet18"),
+            ("mobilenet_v3_small_cosface", "mobilenet_v3_small"),
+            ("efficientnet_b0_cosface", "efficientnet_b0"),
+            ("shufflenet_v2_x1_0_cosface", "shufflenet_v2_x1_0"),
+        ):
+            command = commands[f"{variant}/seed-7"]
+            self.assertIn(model_name, command)
+            self.assertIn("cosface", command)
         self.assertIn(
             "--no-reparameterize-depthwise",
-            commands["efficient_hccr_without_reparameterization/seed-7"],
+            commands["efficient_hccr_singlebranch_embed256_backbone320/seed-7"],
         )
-        self.assertIn("softmax", commands["efficient_hccr_without_cosface/seed-7"])
+        native_command = commands["efficient_hccr_multibranch_native320/seed-7"]
+        self.assertNotIn("--backbone-output-channels", native_command)
+        self.assertNotIn("--embedding-dim", native_command)
+
+    def test_hardware_preflight_requires_matching_cuda_devices(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        arguments = build_parser().parse_args(
+            ["--config", str(root / "configs/experiment/thesis_model_comparison.yaml")]
+        )
+        spec = load_experiment_spec(arguments, root)
+        with (
+            patch("torch.cuda.device_count", return_value=1),
+            self.assertRaisesRegex(RuntimeError, "requires 2 CUDA devices"),
+        ):
+            _validate_hardware_requirements(spec)
+        with (
+            patch("torch.cuda.device_count", return_value=2),
+            patch("torch.cuda.get_device_name", return_value="NVIDIA RTX 4090"),
+            self.assertRaisesRegex(RuntimeError, "A100-SXM4-40GB"),
+        ):
+            _validate_hardware_requirements(spec)
 
     def test_model_from_run_restores_mobilenet_and_replaces_only_final_logits(
         self,
@@ -151,6 +200,39 @@ class ExperimentRunnerTests(unittest.TestCase):
 
         self.assertEqual(restored.classifier[-1].out_features, 11)
         self.assertEqual(full_head.classifier[-1].out_features, 100)
+        inputs = torch.rand(2, 1, 32, 32)
+        torch.testing.assert_close(source(inputs), restored(inputs))
+
+    def test_model_from_run_restores_cosface_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            source = build_model(
+                "resnet18",
+                num_classes=11,
+                classification_head="cosface",
+                logit_scale=16.0,
+                angular_margin=0.2,
+            ).eval()
+            torch.save(source.state_dict(), run_dir / "checkpoint.pt")
+            (run_dir / "checkpoint_metadata.json").write_text(
+                dumps(
+                    {
+                        "model": {
+                            "name": "resnet18",
+                            "num_classes": 11,
+                            "in_channels": 1,
+                            "classification_head": "cosface",
+                            "logit_scale": 16.0,
+                            "angular_margin": 0.2,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            restored = _model_from_run(run_dir, "cpu").eval()
+
+        self.assertEqual(restored.classification_head, "cosface")
+        self.assertEqual(restored.classifier.scale, 16.0)
         inputs = torch.rand(2, 1, 32, 32)
         torch.testing.assert_close(source(inputs), restored(inputs))
 

@@ -10,7 +10,7 @@ adapters—are not part of the proposed-model API.
 | Symbol | Purpose |
 | --- | --- |
 | `EfficientHCCRNet` | Three-stage depthwise-separable CNN for one-channel character images. |
-| `build_model(name, **kwargs)` | Factory accepting `efficient_hccr`, `resnet18`, or `mobilenet_v3_small`. |
+| `build_model(name, **kwargs)` | Factory accepting `efficient_hccr`, `resnet18`, `mobilenet_v3_small`, `shufflenet_v2_x1_0`, or `efficientnet_b0`. |
 | `optimize_model_for_inference(model)` | Return a frozen eval copy with safe inference transformations. |
 
 Internal building blocks in `efficient_hccr.py` are:
@@ -22,11 +22,13 @@ Internal building blocks in `efficient_hccr.py` are:
 
 ## Reference baselines
 
-`resnet18` and `mobilenet_v3_small` are standard torchvision architectures
-initialized from scratch (`weights=None`). Both replace the RGB stem with a
-one-channel convolution for the grayscale HCCR input, and both use their normal
-softmax classifier. `mobilenet_v3_small` is named explicitly so a reported
-"MobileNetV3" result is unambiguous.
+`resnet18`, `mobilenet_v3_small`, `shufflenet_v2_x1_0`, and `efficientnet_b0`
+are standard torchvision architectures initialized from scratch
+(`weights=None`). All replace the RGB stem with a one-channel convolution for
+grayscale HCCR input. Their normal softmax classifier remains the default, while
+`classification_head="cosface"` or `"arcface"` replaces only the final logits
+layer and retains each architecture's penultimate projection. This permits a
+matched angular-margin head across proposed and reference models.
 
 Each baseline exposes `backbone` and `classifier` separately. Resource reports
 therefore measure its classifier and project the last logits layer to the
@@ -98,8 +100,8 @@ CosFace and ArcFace normalize embeddings and class weights. Plain `forward`
 returns target-free scaled cosine logits for validation/inference.
 `training_logits(inputs, targets, margin_multiplier)` applies the target margin
 only during training; the multiplier must be between zero and one and supports
-margin warm-up. `classification_head="softmax"` switches the proposed model to a
-plain linear classifier for the required “Proposed w/o CosFace” ablation.
+margin warm-up. The same head contract applies to EfficientHCCRNet and all four
+reference baselines; `classification_head="softmax"` keeps a plain classifier.
 
 ## Inference optimization
 

@@ -880,7 +880,14 @@ def _validate_training_config(config: TrainingConfig) -> None:
 def _build_training_model(config: TrainingConfig, num_classes: int) -> torch.nn.Module:
     """Build the requested family without leaking proposed-only knobs to baselines."""
     if config.model != "efficient_hccr":
-        return build_model(config.model, num_classes=num_classes, in_channels=1)
+        return build_model(
+            config.model,
+            num_classes=num_classes,
+            in_channels=1,
+            classification_head=config.classification_head,
+            logit_scale=config.logit_scale,
+            angular_margin=config.angular_margin,
+        )
     return build_model(
         config.model,
         num_classes=num_classes,
@@ -909,6 +916,12 @@ def _model_metadata(
         "num_classes": num_classes,
     }
     if config.model != "efficient_hccr":
+        metadata.update(
+            {
+                "logit_scale": config.logit_scale,
+                "angular_margin": config.angular_margin,
+            }
+        )
         return metadata
     metadata.update(
         {
@@ -1362,18 +1375,13 @@ def _append_experiment_summary(
                     if config.model == "efficient_hccr"
                     else None
                 ),
-                "classification_head": (
-                    config.classification_head
-                    if config.model == "efficient_hccr"
-                    else "softmax"
-                ),
+                "classification_head": config.classification_head,
                 "label_smoothing": config.label_smoothing,
                 "logit_scale": config.logit_scale,
                 "angular_margin": config.angular_margin,
                 "margin_warmup_ratio": (
                     config.margin_warmup_ratio
-                    if config.model == "efficient_hccr"
-                    and config.classification_head in {"cosface", "arcface"}
+                    if config.classification_head in {"cosface", "arcface"}
                     else 0.0
                 ),
                 "epochs": config.epochs,

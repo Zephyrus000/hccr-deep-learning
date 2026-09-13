@@ -12,7 +12,7 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | `run_training(config)` | Execute one training run and return selected validation or final held-out test metrics according to policy. |
 | `train_epoch(...)` | Run one optimizer epoch and collect loss, timing, gradient, and throughput metrics. |
 | `EarlyStopping` | Track validation top-1 with patience and minimum delta. |
-| `profile_model(...)` | Measure parameters, MACs, eager/optimized latency, and device metadata. |
+| `profile_model(...)` | Measure parameters, MACs/FLOPs, eager/optimized latency, and device metadata. |
 | `write_training_diagnostics(...)` | Persist epoch diagnostic history. |
 | `resolve_precision(...)` | Resolve FP32, FP16+GradScaler, or BF16 autocast safely per device. |
 

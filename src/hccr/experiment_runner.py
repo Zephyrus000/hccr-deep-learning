@@ -45,6 +45,8 @@ class ExperimentSpec:
     profile_devices: tuple[str, ...] = ("cpu",)
     full_class_num_classes: int | None = 7186
     torchrun_nproc_per_node: int | None = None
+    required_cuda_device_count: int | None = None
+    required_cuda_device_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +162,28 @@ def load_experiment_spec(
             "torchrun_nproc_per_node cannot disable distributed training in "
             f"variants: {disabled_variants}"
         )
+    required_cuda_device_count = raw.get("required_cuda_device_count")
+    if required_cuda_device_count is not None:
+        required_cuda_device_count = int(required_cuda_device_count)
+        if required_cuda_device_count < 1:
+            raise ValueError("required_cuda_device_count must be positive")
+    required_cuda_device_name = raw.get("required_cuda_device_name")
+    if required_cuda_device_name is not None:
+        required_cuda_device_name = str(required_cuda_device_name).strip()
+        if not required_cuda_device_name:
+            raise ValueError("required_cuda_device_name must be non-empty")
+        if required_cuda_device_count is None:
+            raise ValueError(
+                "required_cuda_device_name requires required_cuda_device_count"
+            )
+    if (
+        torchrun_nproc_per_node is not None
+        and required_cuda_device_count is not None
+        and torchrun_nproc_per_node != required_cuda_device_count
+    ):
+        raise ValueError(
+            "torchrun_nproc_per_node must match required_cuda_device_count"
+        )
     return ExperimentSpec(
         experiment_id=experiment_id,
         manifest=_resolve_from_root(project_root, Path(manifest_value)),
@@ -170,6 +194,8 @@ def load_experiment_spec(
         profile_devices=profile_devices,
         full_class_num_classes=full_class_num_classes,
         torchrun_nproc_per_node=torchrun_nproc_per_node,
+        required_cuda_device_count=required_cuda_device_count,
+        required_cuda_device_name=required_cuda_device_name,
     )
 
 
@@ -201,6 +227,8 @@ def run_experiments(
     continue_on_error: bool = False,
 ) -> dict[str, Any]:
     jobs = build_jobs(spec)
+    if not dry_run:
+        _validate_hardware_requirements(spec)
     experiment_dir = spec.output_dir / "sweeps" / spec.experiment_id
     state_path = experiment_dir / "status.json"
     if experiment_dir.exists() and not (resume or dry_run):
@@ -403,7 +431,12 @@ def _model_from_run(
             "angular_margin",
         }
         if model_name == "efficient_hccr"
-        else {"in_channels"}
+        else {
+            "in_channels",
+            "classification_head",
+            "logit_scale",
+            "angular_margin",
+        }
     )
     kwargs = {key: stored[key] for key in model_keys if key in stored}
     for tuple_key in ("stage_depths",):
@@ -764,7 +797,34 @@ def _jsonable_spec(spec: ExperimentSpec) -> dict[str, Any]:
         "profile_devices": list(spec.profile_devices),
         "full_class_num_classes": spec.full_class_num_classes,
         "torchrun_nproc_per_node": spec.torchrun_nproc_per_node,
+        "required_cuda_device_count": spec.required_cuda_device_count,
+        "required_cuda_device_name": spec.required_cuda_device_name,
     }
+
+
+def _validate_hardware_requirements(spec: ExperimentSpec) -> None:
+    required_count = spec.required_cuda_device_count
+    if required_count is None:
+        return
+    available_count = torch.cuda.device_count()
+    if available_count < required_count:
+        raise RuntimeError(
+            f"experiment requires {required_count} CUDA devices, "
+            f"found {available_count}"
+        )
+    required_name = spec.required_cuda_device_name
+    if required_name is None:
+        return
+    mismatches = [
+        f"cuda:{index}={torch.cuda.get_device_name(index)}"
+        for index in range(required_count)
+        if required_name.casefold() not in torch.cuda.get_device_name(index).casefold()
+    ]
+    if mismatches:
+        raise RuntimeError(
+            f"experiment requires CUDA device name containing {required_name!r}; "
+            f"mismatched devices: {', '.join(mismatches)}"
+        )
 
 
 def _read_json(path: Path) -> dict[str, Any]:

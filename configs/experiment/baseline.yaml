@@ -1,7 +1,7 @@
 # Reproduction preset for the legacy proposed checkpoint
 # experiments/20260822T224249Z-c43e969f. Its later held-out test measurement
 # was 96.3361% Top-1. This is provenance only: the historical seed is not
-# present in the legacy checkpoint metadata, so seed 7 is a new reproduction.
+# present in the legacy checkpoint metadata, so 7/17/29 are new reproductions.
 #
 # The legacy architecture has no multi-branch reparameterization. Do not use
 # it as the "Proposed EfficientHCCRNet" control for a new reparameterization
@@ -9,16 +9,21 @@
 experiment_id: legacy-proposed-96-33-reproduction
 manifest: data/processed/casia_hwdb/manifest.csv
 output_dir: experiments
-seeds: [7]
+seeds: [7, 17, 29]
 profile_devices: [cuda]
 full_class_num_classes: 7186
+torchrun_nproc_per_node: 2
+required_cuda_device_count: 2
+required_cuda_device_name: A100-SXM4-40GB
 
 base_args:
   model: efficient_hccr
   device: cuda
+  precision: bfloat16
+  distributed: true
   dataset_backend: lmdb
   evaluation_policy: final_test
-  reproducibility_mode: seeded
+  reproducibility_mode: strict
   num_classes: 7186
   image_size: 96
   batch_size: 256
@@ -42,10 +47,10 @@ base_args:
   scheduler: cosine
   scheduler_min_lr: 1.0e-6
   early_stopping_patience: 0
-  num_workers: 16
-  benchmark_warmup_iterations: 10
-  benchmark_iterations: 50
-  benchmark_repetitions: 3
+  num_workers: 12
+  benchmark_warmup_iterations: 20
+  benchmark_iterations: 200
+  benchmark_repetitions: 5
 
 variants:
   - name: legacy_efficient_hccr

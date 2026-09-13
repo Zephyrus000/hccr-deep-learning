@@ -146,6 +146,8 @@ def profile_model(
             "timed_iterations": benchmark_iterations,
             "repetitions": benchmark_repetitions,
             "aggregation": "median_of_repetition_summaries",
+            "execution_context": "torch.inference_mode",
+            "model_mode": "eval",
         },
         "device_metadata": _device_metadata(device),
         "inference_benchmarks": eager_benchmarks,
@@ -155,12 +157,20 @@ def profile_model(
             "parameter_count": optimized_parameter_counts["total"],
             "parameter_size_mib": optimized_parameter_bytes["total"] / (1024**2),
             "estimated_macs": optimized_macs["total"],
+            "estimated_flops": optimized_macs["total"] * 2,
             "estimated_backbone_macs": optimized_macs["backbone"],
+            "estimated_backbone_flops": optimized_macs["backbone"] * 2,
             "estimated_embedding_projection_macs": optimized_macs[
                 "embedding_projection"
             ],
+            "estimated_embedding_projection_flops": optimized_macs[
+                "embedding_projection"
+            ]
+            * 2,
             "estimated_classifier_macs": optimized_macs["classifier"],
+            "estimated_classifier_flops": optimized_macs["classifier"] * 2,
             "estimated_head_macs": optimized_macs["head"],
+            "estimated_head_flops": optimized_macs["head"] * 2,
             "full_class_projection": optimized_full_class_projection,
             "benchmarks": optimized_benchmarks,
             "end_to_end_batch1_benchmark": optimized_end_to_end,
@@ -454,7 +464,10 @@ def _component_for_name(name: str) -> str:
 def _inference_transforms(model: nn.Module) -> list[str]:
     """Describe only transformations actually applied to the model family."""
     if getattr(model, "name", None) != "efficient_hccr":
-        return ["freeze_eval_copy"]
+        transforms = ["freeze_eval_copy"]
+        if getattr(model, "classification_head", None) in {"cosface", "arcface"}:
+            transforms.insert(0, "cache_normalized_classifier_weight")
+        return transforms
     transforms = [
         "fold_conv_batch_norm",
         "fuse_depthwise_training_branches",

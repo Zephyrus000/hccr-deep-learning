@@ -7,7 +7,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from hccr.models import EfficientHCCRNet, optimize_model_for_inference
+from hccr.models import EfficientHCCRNet, build_model, optimize_model_for_inference
 from hccr.training.diagnostics import _compare_inference_outputs, profile_model
 
 
@@ -128,7 +128,43 @@ class InferenceOptimizationTests(unittest.TestCase):
 
         self.assertIn("inference_benchmarks", profile)
         self.assertTrue(profile["optimized_inference"]["equivalence"]["passed"])
+        self.assertEqual(
+            profile["benchmark_protocol"]["execution_context"],
+            "torch.inference_mode",
+        )
+        self.assertEqual(profile["benchmark_protocol"]["model_mode"], "eval")
         self.assertEqual(len(profile["optimized_inference"]["benchmarks"]), 3)
         self.assertIn("parameter_count", profile["optimized_inference"])
         self.assertIn("estimated_macs", profile["optimized_inference"])
+        self.assertEqual(
+            profile["optimized_inference"]["estimated_flops"],
+            profile["optimized_inference"]["estimated_macs"] * 2,
+        )
         self.assertIn("full_class_projection", profile["optimized_inference"])
+
+    def test_cosface_baseline_runs_eager_and_optimized_inference_benchmarks(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            profile = profile_model(
+                build_model(
+                    "resnet18",
+                    num_classes=11,
+                    classification_head="cosface",
+                ),
+                image_size=16,
+                device="cpu",
+                output_dir=Path(directory),
+                warmup_iterations=1,
+                benchmark_iterations=1,
+                benchmark_repetitions=1,
+            )
+
+        self.assertEqual(profile["classification_head"], "cosface")
+        self.assertEqual(len(profile["inference_benchmarks"]), 3)
+        self.assertEqual(len(profile["optimized_inference"]["benchmarks"]), 3)
+        self.assertIn(
+            "cache_normalized_classifier_weight",
+            profile["optimized_inference"]["transforms"],
+        )
+        self.assertTrue(profile["optimized_inference"]["equivalence"]["passed"])
