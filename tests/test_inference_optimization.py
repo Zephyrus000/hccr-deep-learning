@@ -172,10 +172,11 @@ class InferenceOptimizationTests(unittest.TestCase):
         self.assertEqual(len(profile["optimized_inference"]["benchmarks"]), 3)
         self.assertIn("parameter_count", profile["optimized_inference"])
         self.assertIn("estimated_macs", profile["optimized_inference"])
-        self.assertEqual(
+        self.assertGreater(
             profile["optimized_inference"]["estimated_flops"],
             profile["optimized_inference"]["estimated_macs"] * 2,
         )
+        self.assertTrue(profile["optimized_inference"]["flop_coverage"]["complete"])
         self.assertIn("full_class_projection", profile["optimized_inference"])
 
     def test_cosface_baseline_runs_eager_and_optimized_inference_benchmarks(

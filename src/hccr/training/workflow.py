@@ -1250,6 +1250,7 @@ def _append_experiment_summary(
     end_to_end = resource_profile["end_to_end_batch1_benchmark"]
     full_class = resource_profile["full_class_projection"]
     mac_coverage = resource_profile["mac_coverage"]
+    flop_coverage = resource_profile["flop_coverage"]
     summary_path = experiments_dir / "experiment_summary.csv"
     import csv
 
@@ -1303,11 +1304,20 @@ def _append_experiment_summary(
         "estimated_embedding_projection_macs",
         "estimated_classifier_macs",
         "estimated_head_macs",
+        "estimated_flops",
+        "estimated_backbone_flops",
+        "estimated_embedding_projection_flops",
+        "estimated_classifier_flops",
+        "estimated_head_flops",
         "mac_coverage_complete",
         "unsupported_operator_types",
+        "unsupported_mac_operator_types",
+        "flop_coverage_complete",
+        "unsupported_flop_operator_types",
         "full_class_num_classes",
         "full_class_parameter_count",
         "full_class_estimated_macs",
+        "full_class_estimated_flops",
         "latency_p50_ms",
         "latency_p95_ms",
         "latency_p99_ms",
@@ -1438,13 +1448,34 @@ def _append_experiment_summary(
                     "estimated_classifier_macs"
                 ],
                 "estimated_head_macs": resource_profile["estimated_head_macs"],
+                "estimated_flops": resource_profile["estimated_flops"],
+                "estimated_backbone_flops": resource_profile[
+                    "estimated_backbone_flops"
+                ],
+                "estimated_embedding_projection_flops": resource_profile[
+                    "estimated_embedding_projection_flops"
+                ],
+                "estimated_classifier_flops": resource_profile[
+                    "estimated_classifier_flops"
+                ],
+                "estimated_head_flops": resource_profile["estimated_head_flops"],
                 "mac_coverage_complete": mac_coverage["complete"],
+                # Legacy alias retained so existing experiment_summary.csv rows
+                # keep their original MAC-coverage diagnostics during migration.
                 "unsupported_operator_types": json.dumps(
                     mac_coverage["unsupported_operator_types"]
+                ),
+                "unsupported_mac_operator_types": json.dumps(
+                    mac_coverage["unsupported_operator_types"]
+                ),
+                "flop_coverage_complete": flop_coverage["complete"],
+                "unsupported_flop_operator_types": json.dumps(
+                    flop_coverage["unsupported_operator_types"]
                 ),
                 "full_class_num_classes": full_class.get("num_classes"),
                 "full_class_parameter_count": full_class.get("total_parameter_count"),
                 "full_class_estimated_macs": full_class.get("total_macs"),
+                "full_class_estimated_flops": full_class.get("total_flops"),
                 "latency_p50_ms": benchmark["latency_p50_ms"],
                 "latency_p95_ms": benchmark["latency_p95_ms"],
                 "latency_p99_ms": benchmark["latency_p99_ms"],

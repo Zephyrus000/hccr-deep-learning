@@ -12,7 +12,7 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | `run_training(config)` | Execute one training run and return selected validation or final held-out test metrics according to policy. |
 | `train_epoch(...)` | Run one optimizer epoch and collect loss, timing, gradient, and throughput metrics. |
 | `EarlyStopping` | Track validation top-1 with patience and minimum delta. |
-| `profile_model(...)` | Measure parameters, MACs/FLOPs, eager/optimized latency, and device metadata. |
+| `profile_model(...)` | Measure parameters, Conv/Linear MACs, operator-level FLOPs, eager/optimized latency, coverage, and device metadata. |
 | `write_training_diagnostics(...)` | Persist epoch diagnostic history. |
 | `resolve_precision(...)` | Resolve FP32, FP16+GradScaler, or BF16 autocast safely per device. |
 
@@ -116,6 +116,15 @@ metrics are emitted only in `final_test` after training for the selected
 checkpoint. Writer IDs are unavailable in the current Kaggle-derived image
 export, so artifacts record writer separation as `not_verifiable`, not as a
 verified writer-disjoint split.
+
+`resource_profile.json` keeps MACs and FLOPs as distinct quantities. MACs count
+convolution, linear, and declared fixed-filter multiply--accumulates. FLOPs are
+traced from an eval-mode forward pass and additionally include bias additions,
+BatchNorm, activations, pooling, residual arithmetic, SE gates, and angular-head
+normalization. The artifact records the exact counting convention and operator
+coverage. Shape-only and data-movement operations such as view, transpose,
+channel shuffle, split, concatenate, and copy are zero arithmetic FLOPs; their
+runtime cost remains represented by the measured latency.
 
 Paper screening runs should use `validation_only` and `reproducibility_mode="strict"`.
 Run `final_test` only after architecture and hyperparameters are frozen. Run

@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import unittest
+from unittest.mock import patch
+
+import torch
 
 from hccr.cli import build_parser, main
 from hccr.commands import benchmark, deploy, train, validate
@@ -104,6 +110,8 @@ class CommandRoutingTests(unittest.TestCase):
         self.assertIs(arguments.command_handler, benchmark.run)
         self.assertEqual(arguments.device, "cpu")
         self.assertEqual(arguments.iterations, 1)
+        self.assertEqual(arguments.mode, "eager")
+        self.assertEqual(arguments.classification_head, "cosface")
 
     def test_scaffold_commands_dispatch_without_training_arguments(self) -> None:
         self.assertEqual(main(["validate"]), 0)
@@ -118,3 +126,69 @@ class BenchmarkCompatibilityTests(unittest.TestCase):
         self.assertEqual(arguments.device, "cpu")
         self.assertEqual(arguments.warmup_iterations, 2)
         self.assertEqual(arguments.iterations, 3)
+        self.assertEqual(arguments.mode, "eager")
+
+    def test_benchmark_parser_accepts_optimized_mode(self) -> None:
+        arguments = benchmark.build_parser().parse_args(["--mode", "optimized"])
+        self.assertEqual(arguments.mode, "optimized")
+
+    def test_eager_mode_does_not_call_model_optimizer(self) -> None:
+        arguments = benchmark.build_parser().parse_args(
+            [
+                "--device",
+                "cpu",
+                "--num-classes",
+                "3",
+                "--width",
+                "4",
+                "--stage-depths",
+                "1",
+                "1",
+                "1",
+                "--warmup-iterations",
+                "1",
+                "--iterations",
+                "1",
+            ]
+        )
+        timing = {
+            "latency_mean_ms": 1.0,
+            "latency_p50_ms": 1.0,
+            "latency_p95_ms": 1.0,
+            "latency_p99_ms": 1.0,
+            "samples_per_second": 1000.0,
+        }
+        output = io.StringIO()
+        with (
+            patch("hccr.commands.benchmark.optimize_model_for_inference") as optimize,
+            patch("hccr.commands.benchmark.benchmark", return_value=timing),
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertEqual(benchmark.run(arguments), 0)
+        optimize.assert_not_called()
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["mode"], "eager")
+        self.assertEqual(report["optimization_transforms"], [])
+        self.assertEqual(report["deploy_transforms"], [])
+        self.assertIn("torch_inference_mode", report["shared_inference_behavior"])
+
+    def test_optimized_mode_calls_model_optimizer(self) -> None:
+        model = torch.nn.Identity()
+        prepared = torch.nn.Identity()
+        with patch(
+            "hccr.commands.benchmark.optimize_model_for_inference",
+            return_value=prepared,
+        ) as optimize:
+            result = benchmark._prepare_benchmark_model(
+                model, "optimized", torch.float32
+            )
+        optimize.assert_called_once_with(model)
+        self.assertIs(result, prepared)
+        self.assertFalse(result.training)
+
+    def test_eager_mode_rejects_cuda_graph(self) -> None:
+        arguments = benchmark.build_parser().parse_args(
+            ["--device", "cpu", "--cuda-graph"]
+        )
+        with self.assertRaisesRegex(ValueError, "--mode optimized"):
+            benchmark.run(arguments)

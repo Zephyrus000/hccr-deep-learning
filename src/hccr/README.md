@@ -19,6 +19,7 @@ and the legacy reserved commands are placeholders, not complete workflows.
 
 | Package | Responsibility |
 | --- | --- |
+| [`benchmarking`](benchmarking/README.md) | Shared benchmark schemas, protocols, and timing summaries. |
 | [`commands`](commands/) | Isolated CLI parsers and handlers for each workflow. |
 | [`config`](config/README.md) | YAML loading and small cross-layer configuration records. |
 | [`data`](data/README.md) | Manifest validation, folder adapters, class subsets, and PyTorch datasets. |

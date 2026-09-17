@@ -1,24 +1,34 @@
-"""Benchmark command parser and handler for the exact deploy model form."""
+"""Benchmark eager or deployment-optimized model inference."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import time
 from collections.abc import Sequence
 from pathlib import Path
 
 import torch
 
+from hccr.benchmarking import (
+    BENCHMARK_SCHEMA_VERSION,
+    build_benchmark_protocol,
+    summarize_timings,
+)
 from hccr.models import MODEL_NAMES, build_model, optimize_model_for_inference
 
 NAME = "benchmark"
-HELP = "Benchmark the deploy model across supported inference precisions."
+HELP = "Benchmark eager or optimized inference across supported precisions."
 
 
 def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument(
+        "--mode",
+        choices=("eager", "optimized"),
+        default="eager",
+        help="eager for fair main-table results; optimized for deployment studies",
+    )
     parser.add_argument("--num-classes", type=int, default=7186)
     parser.add_argument("--model", choices=MODEL_NAMES, default="efficient_hccr")
     parser.add_argument("--image-size", type=int, default=96)
@@ -30,6 +40,13 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+    parser.add_argument(
+        "--classification-head",
+        choices=("softmax", "cosface", "arcface"),
+        default="cosface",
+    )
+    parser.add_argument("--logit-scale", type=float, default=32.0)
+    parser.add_argument("--angular-margin", type=float, default=0.1)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     parser.add_argument("--cpu-threads", type=int, default=1)
     parser.add_argument(
@@ -68,13 +85,7 @@ def benchmark(
             model(sample)
             _synchronize(device)
             timings.append((time.perf_counter() - started_at) * 1000)
-    return {
-        "latency_mean_ms": statistics.mean(timings),
-        "latency_p50_ms": _percentile(timings, 50),
-        "latency_p95_ms": _percentile(timings, 95),
-        "latency_p99_ms": _percentile(timings, 99),
-        "samples_per_second": 1000 / statistics.mean(timings),
-    }
+    return summarize_timings(timings)
 
 
 def run(arguments: argparse.Namespace) -> int:
@@ -87,6 +98,10 @@ def run(arguments: argparse.Namespace) -> int:
         raise ValueError("float16 benchmarking requires CUDA")
     if arguments.cpu_threads < 1:
         raise ValueError("cpu_threads must be positive")
+    if arguments.mode == "eager" and arguments.cuda_graph:
+        raise ValueError("CUDA graphs require --mode optimized")
+    if arguments.cuda_graph and arguments.device != "cuda":
+        raise ValueError("CUDA graph benchmarking requires CUDA")
     if arguments.device == "cpu":
         torch.set_num_threads(arguments.cpu_threads)
     model = _build_benchmark_model(arguments)
@@ -95,10 +110,13 @@ def run(arguments: argparse.Namespace) -> int:
             torch.load(arguments.checkpoint, map_location="cpu", weights_only=True)
         )
     model = model.to(arguments.device).eval()
+    optimization_transforms = (
+        _deploy_transforms(model) if arguments.mode == "optimized" else []
+    )
     results = {}
     for precision in arguments.precisions:
         dtype = torch.float16 if precision == "float16" else torch.float32
-        candidate = optimize_model_for_inference(model).to(dtype=dtype)
+        candidate = _prepare_benchmark_model(model, arguments.mode, dtype)
         results[precision] = benchmark(
             candidate,
             arguments.image_size,
@@ -108,8 +126,6 @@ def run(arguments: argparse.Namespace) -> int:
             arguments.iterations,
         )
         if arguments.cuda_graph:
-            if arguments.device != "cuda":
-                raise ValueError("CUDA graph benchmarking requires CUDA")
             graph_runner = _capture_cuda_graph(candidate, arguments.image_size, dtype)
             results[f"{precision}_cuda_graph"] = benchmark(
                 graph_runner,
@@ -120,6 +136,23 @@ def run(arguments: argparse.Namespace) -> int:
                 arguments.iterations,
             )
     report = {
+        "schema_version": BENCHMARK_SCHEMA_VERSION,
+        "benchmark_protocol": build_benchmark_protocol(
+            device=arguments.device,
+            batch_size=1,
+            warmup_iterations=arguments.warmup_iterations,
+            timed_iterations=arguments.iterations,
+            repetitions=1,
+            scope="model_forward",
+            metadata={
+                "mode": arguments.mode,
+                "precisions": list(arguments.precisions),
+                "cuda_graph": arguments.cuda_graph,
+                "optimization_transforms": optimization_transforms,
+                "intra_op_threads": torch.get_num_threads(),
+                "inter_op_threads": torch.get_num_interop_threads(),
+            },
+        ),
         "device": arguments.device,
         "device_name": (
             torch.cuda.get_device_name(torch.device(arguments.device))
@@ -128,6 +161,7 @@ def run(arguments: argparse.Namespace) -> int:
         ),
         "cpu_threads": torch.get_num_threads(),
         "batch_size": 1,
+        "mode": arguments.mode,
         "image_size": arguments.image_size,
         "num_classes": arguments.num_classes,
         "model": arguments.model,
@@ -135,10 +169,15 @@ def run(arguments: argparse.Namespace) -> int:
         "stage_depths": list(arguments.stage_depths),
         "stem_stride": arguments.stem_stride,
         "reparameterize_depthwise": arguments.reparameterize_depthwise,
+        "classification_head": arguments.classification_head,
+        "logit_scale": arguments.logit_scale,
+        "angular_margin": arguments.angular_margin,
         "warmup_iterations": arguments.warmup_iterations,
         "iterations": arguments.iterations,
         "cuda_graph": arguments.cuda_graph,
-        "deploy_transforms": _deploy_transforms(model),
+        "shared_inference_behavior": _shared_inference_behavior(model),
+        "optimization_transforms": optimization_transforms,
+        "deploy_transforms": optimization_transforms,
         "results": results,
     }
     encoded = json.dumps(report, indent=2)
@@ -155,8 +194,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _build_benchmark_model(arguments: argparse.Namespace) -> torch.nn.Module:
+    classifier_options = {
+        "classification_head": arguments.classification_head,
+        "logit_scale": arguments.logit_scale,
+        "angular_margin": arguments.angular_margin,
+    }
     if arguments.model != "efficient_hccr":
-        return build_model(arguments.model, num_classes=arguments.num_classes)
+        return build_model(
+            arguments.model,
+            num_classes=arguments.num_classes,
+            **classifier_options,
+        )
     return build_model(
         arguments.model,
         num_classes=arguments.num_classes,
@@ -164,7 +212,28 @@ def _build_benchmark_model(arguments: argparse.Namespace) -> torch.nn.Module:
         stage_depths=tuple(arguments.stage_depths),
         stem_stride=arguments.stem_stride,
         reparameterize_depthwise=arguments.reparameterize_depthwise,
+        **classifier_options,
     )
+
+
+def _prepare_benchmark_model(
+    model: torch.nn.Module, mode: str, dtype: torch.dtype
+) -> torch.nn.Module:
+    """Prepare exactly the model form requested by the benchmark protocol."""
+    if mode == "eager":
+        # Calling eval after dtype conversion refreshes the inference-only
+        # normalized-weight cache used by the shared angular-margin head.
+        return model.to(dtype=dtype).eval()
+    if mode == "optimized":
+        return optimize_model_for_inference(model).to(dtype=dtype).eval()
+    raise ValueError(f"unsupported benchmark mode: {mode}")
+
+
+def _shared_inference_behavior(model: torch.nn.Module) -> list[str]:
+    behavior = ["model_eval", "torch_inference_mode"]
+    if getattr(model, "classification_head", None) in {"cosface", "arcface"}:
+        behavior.append("cache_normalized_classifier_weight")
+    return behavior
 
 
 def _deploy_transforms(model: torch.nn.Module) -> list[str]:
@@ -176,8 +245,6 @@ def _deploy_transforms(model: torch.nn.Module) -> list[str]:
         "remove_eval_dropout_hop",
         "sequential_feature_fast_path",
     ]
-    if getattr(model, "classification_head", None) in {"cosface", "arcface"}:
-        transforms.insert(0, "cache_normalized_classifier_weight")
     return transforms
 
 
@@ -205,9 +272,3 @@ def _capture_cuda_graph(model: torch.nn.Module, image_size: int, dtype: torch.dt
         return static_output
 
     return replay
-
-
-def _percentile(values: list[float], percentile: int) -> float:
-    ordered = sorted(values)
-    index = round((percentile / 100) * (len(ordered) - 1))
-    return ordered[index]

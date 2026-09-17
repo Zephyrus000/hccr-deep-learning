@@ -8,8 +8,9 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from hccr.models import EfficientHCCRNet
+from hccr.models import EfficientHCCRNet, build_model
 from hccr.preprocessing import EvalPreprocessor
+from hccr.training.complexity import estimate_flops_by_component
 from hccr.training.diagnostics import (
     estimate_macs_by_component,
     profile_model,
@@ -64,6 +65,8 @@ class TrainingDiagnosticsTests(unittest.TestCase):
             )
             self.assertIn("intra_op_threads", profile["device_metadata"])
             self.assertGreater(profile["estimated_macs"], 0)
+            self.assertGreater(profile["estimated_flops"], 0)
+            self.assertTrue(profile["flop_coverage"]["complete"])
             self.assertGreater(epoch["gradient_norm_max"], 0)
             self.assertIn("stages", epoch)
             self.assertEqual(epoch["augmentation_counts"], {"elastic": 4})
@@ -136,6 +139,10 @@ class ModelCostBreakdownTests(unittest.TestCase):
             profile["estimated_macs"],
             profile["estimated_backbone_macs"] + profile["estimated_head_macs"],
         )
+        self.assertEqual(
+            profile["estimated_flops"],
+            profile["estimated_backbone_flops"] + profile["estimated_head_flops"],
+        )
 
     def test_full_class_growth_is_isolated_to_classifier(self) -> None:
         subset = EfficientHCCRNet(num_classes=1000, width=64)
@@ -186,6 +193,17 @@ class ModelCostBreakdownTests(unittest.TestCase):
         self.assertEqual(full_class["embedding_projection_parameter_count"], 51_200)
         self.assertEqual(full_class["classifier_parameter_count"], 1_149_760)
         self.assertEqual(full_class["head_parameter_count"], 1_200_960)
+        direct_full_flops, _coverage = estimate_flops_by_component(
+            EfficientHCCRNet(
+                num_classes=7186,
+                width=64,
+                backbone_output_channels=320,
+                embedding_dim=160,
+            ),
+            16,
+            "cpu",
+        )
+        self.assertEqual(full_class["total_flops"], direct_full_flops["total"])
 
     def test_profile_declares_coverage_end_to_end_and_full_head_projection(
         self,
@@ -206,6 +224,11 @@ class ModelCostBreakdownTests(unittest.TestCase):
         self.assertIn(
             "BatchNorm2d", profile["mac_coverage"]["unsupported_operator_types"]
         )
+        self.assertTrue(profile["flop_coverage"]["complete"])
+        self.assertIn(
+            "aten._native_batch_norm_legit_no_training",
+            profile["flop_coverage"]["counted_operator_types"],
+        )
         self.assertEqual(profile["full_class_projection"]["status"], "available")
         self.assertEqual(profile["full_class_projection"]["num_classes"], 100)
         self.assertEqual(
@@ -218,6 +241,59 @@ class ModelCostBreakdownTests(unittest.TestCase):
 
 
 class RetainedInputCostTests(unittest.TestCase):
+    def test_article_models_have_complete_operator_flop_coverage(self) -> None:
+        specifications = (
+            ("resnet18", {}),
+            ("mobilenet_v3_small", {}),
+            ("shufflenet_v2_x1_0", {}),
+            ("efficientnet_b0", {}),
+            (
+                "efficient_hccr",
+                {
+                    "width": 8,
+                    "stage_depths": (2, 3, 3),
+                    "reparameterize_depthwise": False,
+                },
+            ),
+            (
+                "efficient_hccr",
+                {
+                    "width": 8,
+                    "stage_depths": (2, 3, 3),
+                    "reparameterize_depthwise": True,
+                },
+            ),
+        )
+        for model_name, options in specifications:
+            with self.subTest(model=model_name, options=options):
+                model = build_model(
+                    model_name,
+                    num_classes=11,
+                    classification_head="cosface",
+                    **options,
+                )
+                _flops, coverage = estimate_flops_by_component(model, 32, "cpu")
+                self.assertTrue(coverage["complete"])
+                self.assertEqual(coverage["unsupported_operator_types"], [])
+
+    def test_operator_flops_include_non_mac_inference_work(self) -> None:
+        model = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 2, 3, padding=1, bias=False),
+            torch.nn.BatchNorm2d(2),
+            torch.nn.ReLU(),
+            torch.nn.AdaptiveAvgPool2d(1),
+            torch.nn.Flatten(),
+            torch.nn.Linear(2, 3),
+        )
+        flops, coverage = estimate_flops_by_component(model, 4, "cpu")
+        self.assertEqual(flops["total"], 787)
+        self.assertTrue(coverage["complete"])
+        self.assertEqual(coverage["unsupported_operator_types"], [])
+        self.assertEqual(
+            coverage["flops_by_operator"]["aten._native_batch_norm_legit_no_training"],
+            132,
+        )
+
     def test_grayscale_model_has_no_input_adapter_macs(self) -> None:
         image_size = 32
         model = EfficientHCCRNet(num_classes=11, width=8)

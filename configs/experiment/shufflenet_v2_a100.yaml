@@ -1,0 +1,62 @@
+# Full-class ShuffleNetV2 benchmark on one NVIDIA A100 40 GB GPU.
+# It keeps the controlled comparison's data, CosFace loss, and optimization
+# budget while intentionally using single-process training on this one-GPU host.
+experiment_id: thesis-shufflenet-v2-a100
+manifest: data/processed/casia_hwdb/manifest.csv
+output_dir: experiments
+seeds: [7, 17, 29]
+profile_devices: [cuda]
+full_class_num_classes: 7186
+
+# The server exposes exactly one A100. Do not set torchrun_nproc_per_node:
+# the sweep runner reserves torchrun for two or more distributed processes.
+required_cuda_device_count: 1
+required_cuda_device_name: A100-SXM4-40GB
+
+base_args:
+  model: shufflenet_v2_x1_0
+  device: cuda
+  precision: bfloat16
+  distributed: false
+  dataset_backend: lmdb
+  evaluation_policy: final_test
+  reproducibility_mode: strict
+  num_classes: 7186
+  image_size: 96
+
+  # Per-device batch size is unchanged from the controlled A100 comparison.
+  batch_size: 256
+  reference_batch_size: 256
+  optimizer_step_policy: configured_epochs
+  learning_rate_scaling: none
+  epochs: 20
+  learning_rate: 3.0e-4
+  lr_warmup_ratio: 0.0
+  weight_decay: 1.0e-4
+
+  classification_head: cosface
+  logit_scale: 32.0
+  angular_margin: 0.1
+  margin_warmup_ratio: 0.2
+  dropout: 0.1
+  label_smoothing: 0.0
+  scheduler: cosine
+  scheduler_min_lr: 1.0e-6
+  scheduler_patience: 3
+  early_stopping_patience: 0
+
+  # The A100 container is capped at 60 GiB system RAM; six spawned LMDB
+  # workers stay below that limit while keeping host-side input throughput high.
+  num_workers: 6
+  dataloader_start_method: auto
+  prefetch_factor: 1
+  persistent_workers: true
+  worker_timeout_seconds: 120.0
+
+  benchmark_warmup_iterations: 20
+  benchmark_iterations: 200
+  benchmark_repetitions: 5
+
+variants:
+  - name: shufflenet_v2_x1_0_cosface
+    args: {}

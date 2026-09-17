@@ -349,24 +349,65 @@ hccr compare-runs \
 
 ## Inference benchmarking
 
-Benchmark the deploy form after loading a checkpoint:
+Use eager mode for the fair main-table comparison after loading a checkpoint.
+It is the default and runs only `model.eval()` under `torch.inference_mode()`;
+it does not fold Conv--BN, reparameterize branches, compile, export, change
+memory format, or capture a CUDA graph:
 
 ```bash
 hccr benchmark \
+  --mode eager \
   --checkpoint experiments/<run-id>/checkpoint.pt \
   --num-classes 1000 \
   --image-size 64 \
   --width 64 \
   --stage-depths 1 2 2 \
+  --no-reparameterize-depthwise \
+  --classification-head cosface \
+  --device cuda \
+  --precisions float32 float16
+```
+
+Use optimized mode only for a separately reported deployment study:
+
+```bash
+hccr benchmark \
+  --mode optimized \
+  --checkpoint experiments/<run-id>/checkpoint.pt \
+  --num-classes 1000 \
+  --image-size 64 \
+  --width 64 \
+  --stage-depths 1 2 2 \
+  --no-reparameterize-depthwise \
+  --classification-head cosface \
   --device cuda \
   --precisions float32 float16 \
   --cuda-graph
 ```
 
 For CPU latency, benchmark explicit thread counts independently, for example
-`--cpu-threads 1`, `2`, `4`, and `8`. FP16 and CUDA graphs require CUDA.
+`--cpu-threads 1`, `2`, `4`, and `8`. FP16 requires CUDA; CUDA graph capture
+requires CUDA together with `--mode optimized`. The shared CosFace/ArcFace
+classifier may cache its normalized weight after `eval()` in both modes.
 `python scripts/benchmark_inference.py` remains available as a compatibility
 wrapper around the same command implementation.
+
+To compare multiple completed runs on a specific CPU host using a fixed sample
+from the LMDB dataset:
+
+```bash
+python scripts/benchmark_cpu_lmdb.py \
+  --mode eager \
+  --runs experiments/<run-a> experiments/<run-b> \
+  --threads 1 \
+  --warmup 100 \
+  --iterations 3000 \
+  --repetitions 5
+```
+
+Run this specialized script independently on each target CPU. Its JSON output
+uses the same versioned timing keys and benchmark protocol as the general
+benchmark command; its CSV output is a scalar summary suitable for comparison.
 
 ## Repository layout
 
@@ -374,6 +415,7 @@ wrapper around the same command implementation.
 configs/              Data, model, baseline, and ablation configuration
 scripts/              Dataset, sweep, and inference benchmark entry points
 src/hccr/             Installable Python package
+├── benchmarking/     Shared benchmark schemas and timing summaries
 ├── commands/         Isolated CLI parsers and command handlers
 ├── config/           YAML loading and lightweight schemas
 ├── data/             Manifest validation and dataset adapters

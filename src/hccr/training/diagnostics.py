@@ -15,6 +15,11 @@ from PIL import Image, ImageDraw
 from torch import nn
 
 from hccr.models import optimize_model_for_inference
+from hccr.training.complexity import (
+    classifier_inference_flops,
+    estimate_flops_by_component,
+    flop_counting_conventions,
+)
 from hccr.utils.experiment import write_json
 
 
@@ -75,8 +80,14 @@ def _profile_model(
     parameter_bytes = _parameter_bytes_by_component(model)
     model_bytes = parameter_bytes["total"]
     macs = estimate_macs_by_component(model, image_size, device)
+    flops, flop_coverage = estimate_flops_by_component(model, image_size, device)
     full_class_projection = project_classifier_cost(
-        model, parameter_counts, parameter_bytes, macs, full_class_num_classes
+        model,
+        parameter_counts,
+        parameter_bytes,
+        macs,
+        full_class_num_classes,
+        flops,
     )
     eager_benchmarks = [
         _benchmark_batch(
@@ -107,12 +118,16 @@ def _profile_model(
     optimized_parameter_counts = _parameter_counts_by_component(optimized_model)
     optimized_parameter_bytes = _parameter_bytes_by_component(optimized_model)
     optimized_macs = estimate_macs_by_component(optimized_model, image_size, device)
+    optimized_flops, optimized_flop_coverage = estimate_flops_by_component(
+        optimized_model, image_size, device
+    )
     optimized_full_class_projection = project_classifier_cost(
         optimized_model,
         optimized_parameter_counts,
         optimized_parameter_bytes,
         optimized_macs,
         full_class_num_classes,
+        optimized_flops,
     )
     optimization_equivalence = _compare_inference_outputs(
         model, optimized_model, image_size, device
@@ -171,8 +186,17 @@ def _profile_model(
         "estimated_classifier_macs": macs["classifier"],
         "estimated_head_macs": macs["head"],
         "estimated_input_adapter_macs": macs["input_adapter"],
-        "estimated_flops": macs["total"] * 2,
+        "estimated_flops": flops["total"],
+        "estimated_backbone_flops": flops["backbone"],
+        "estimated_embedding_projection_flops": flops["embedding_projection"],
+        "estimated_classifier_flops": flops["classifier"],
+        "estimated_head_flops": flops["head"],
+        "estimated_input_adapter_flops": flops["input_adapter"],
         "mac_coverage": _mac_coverage(model),
+        "flop_coverage": flop_coverage,
+        "complexity_protocol": flop_counting_conventions(
+            image_size, getattr(model, "effective_input_channels", 1)
+        ),
         "full_class_projection": full_class_projection,
         "benchmark_protocol": {
             "warmup_iterations": warmup_iterations,
@@ -190,20 +214,20 @@ def _profile_model(
             "parameter_count": optimized_parameter_counts["total"],
             "parameter_size_mib": optimized_parameter_bytes["total"] / (1024**2),
             "estimated_macs": optimized_macs["total"],
-            "estimated_flops": optimized_macs["total"] * 2,
+            "estimated_flops": optimized_flops["total"],
             "estimated_backbone_macs": optimized_macs["backbone"],
-            "estimated_backbone_flops": optimized_macs["backbone"] * 2,
+            "estimated_backbone_flops": optimized_flops["backbone"],
             "estimated_embedding_projection_macs": optimized_macs[
                 "embedding_projection"
             ],
-            "estimated_embedding_projection_flops": optimized_macs[
+            "estimated_embedding_projection_flops": optimized_flops[
                 "embedding_projection"
-            ]
-            * 2,
+            ],
             "estimated_classifier_macs": optimized_macs["classifier"],
-            "estimated_classifier_flops": optimized_macs["classifier"] * 2,
+            "estimated_classifier_flops": optimized_flops["classifier"],
             "estimated_head_macs": optimized_macs["head"],
-            "estimated_head_flops": optimized_macs["head"] * 2,
+            "estimated_head_flops": optimized_flops["head"],
+            "flop_coverage": optimized_flop_coverage,
             "full_class_projection": optimized_full_class_projection,
             "benchmarks": optimized_benchmarks,
             "end_to_end_batch1_benchmark": optimized_end_to_end,
@@ -293,8 +317,9 @@ def project_classifier_cost(
     parameter_bytes: dict[str, int],
     macs: dict[str, int],
     num_classes: int,
+    flops: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Project parameter storage and MACs for a different classifier size."""
+    """Project parameter storage, MACs, and FLOPs for another class count."""
     if num_classes < 2:
         raise ValueError("full-class projection requires at least two classes")
     classifier = getattr(model, "classifier", None)
@@ -331,7 +356,7 @@ def project_classifier_cost(
     projected_head_parameters = fixed_head_parameters + projected_classifier_parameters
     projected_head_bytes = fixed_head_bytes + projected_classifier_bytes
     projected_head_macs = fixed_head_macs + projected_classifier_macs
-    return {
+    projection = {
         "status": "available",
         "num_classes": num_classes,
         "embedding_dim": linear.in_features,
@@ -350,6 +375,23 @@ def project_classifier_cost(
         / (1024**2),
         "total_macs": macs["backbone"] + projected_head_macs,
     }
+    if flops is not None:
+        original_classifier_flops = classifier_inference_flops(
+            linear, linear.out_features
+        )
+        projected_classifier_flops = classifier_inference_flops(linear, num_classes)
+        fixed_head_flops = flops["head"] - original_classifier_flops
+        projected_head_flops = fixed_head_flops + projected_classifier_flops
+        projection.update(
+            {
+                "backbone_flops": flops["backbone"],
+                "embedding_projection_flops": fixed_head_flops,
+                "classifier_flops": projected_classifier_flops,
+                "head_flops": projected_head_flops,
+                "total_flops": flops["backbone"] + projected_head_flops,
+            }
+        )
+    return projection
 
 
 def _mac_coverage(model: nn.Module) -> dict[str, Any]:
