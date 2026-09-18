@@ -1,0 +1,74 @@
+# Section 7.2 fairness check requested by the supervisor: four baselines, one
+# seed. Each baseline uses Linear(native_dim, 320, bias=False) followed by the
+# same CosFace(320, 7186) classifier (2,299,520 classifier parameters).
+# EfficientHCCRNet is intentionally not retrained. Latency from this RTX 4090
+# run is not used in the paper's hardware-matched latency comparison.
+experiment_id: thesis-fair-baseline-classifier-2p3m-seed7-rtx4090
+manifest: data/processed/casia_hwdb/manifest.csv
+output_dir: experiments
+seeds: [7]
+profile_devices: []
+full_class_num_classes: 7186
+
+required_cuda_device_count: 1
+required_cuda_device_name: RTX 4090
+
+base_args:
+  model: resnet18
+  device: cuda
+  precision: bfloat16
+  distributed: false
+  dataset_backend: lmdb
+  evaluation_policy: final_test
+  reproducibility_mode: strict
+  num_classes: 7186
+  image_size: 96
+
+  batch_size: 256
+  reference_batch_size: 256
+  optimizer_step_policy: configured_epochs
+  learning_rate_scaling: none
+  epochs: 20
+  learning_rate: 3.0e-4
+  lr_warmup_ratio: 0.0
+  weight_decay: 1.0e-4
+
+  classification_head: cosface
+  embedding_dim: 320
+  logit_scale: 32.0
+  angular_margin: 0.1
+  margin_warmup_ratio: 0.2
+  label_smoothing: 0.0
+  scheduler: cosine
+  scheduler_min_lr: 1.0e-6
+  scheduler_patience: 3
+  early_stopping_patience: 0
+
+  num_workers: 12
+  dataloader_start_method: auto
+  prefetch_factor: 1
+  persistent_workers: true
+  worker_timeout_seconds: 120.0
+
+  # Resource accounting still runs once per training job, but these minimal
+  # timing counts avoid wasting time on latency that is outside this study.
+  benchmark_warmup_iterations: 1
+  benchmark_iterations: 1
+  benchmark_repetitions: 1
+
+variants:
+  - name: resnet18_common320_cosface
+    args:
+      model: resnet18
+
+  - name: mobilenet_v3_small_common320_cosface
+    args:
+      model: mobilenet_v3_small
+
+  - name: efficientnet_b0_common320_cosface
+    args:
+      model: efficientnet_b0
+
+  - name: shufflenet_v2_x1_0_common320_cosface
+    args:
+      model: shufflenet_v2_x1_0

@@ -885,6 +885,7 @@ def _build_training_model(config: TrainingConfig, num_classes: int) -> torch.nn.
             num_classes=num_classes,
             in_channels=1,
             classification_head=config.classification_head,
+            embedding_dim=config.embedding_dim,
             logit_scale=config.logit_scale,
             angular_margin=config.angular_margin,
         )
@@ -918,6 +919,11 @@ def _model_metadata(
     if config.model != "efficient_hccr":
         metadata.update(
             {
+                "backbone_output_channels": getattr(
+                    model, "backbone_output_channels", None
+                ),
+                "embedding_dim": config.embedding_dim,
+                "resolved_embedding_dim": getattr(model, "embedding_dim", None),
                 "logit_scale": config.logit_scale,
                 "angular_margin": config.angular_margin,
             }

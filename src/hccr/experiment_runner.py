@@ -434,6 +434,7 @@ def _model_from_run(
         else {
             "in_channels",
             "classification_head",
+            "embedding_dim",
             "logit_scale",
             "angular_margin",
         }

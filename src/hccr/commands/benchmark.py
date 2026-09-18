@@ -33,6 +33,7 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", choices=MODEL_NAMES, default="efficient_hccr")
     parser.add_argument("--image-size", type=int, default=96)
     parser.add_argument("--width", type=int, default=64)
+    parser.add_argument("--embedding-dim", type=int)
     parser.add_argument("--stage-depths", type=int, nargs=3, default=(1, 2, 2))
     parser.add_argument("--stem-stride", type=int, choices=(1, 2), default=2)
     parser.add_argument(
@@ -166,6 +167,7 @@ def run(arguments: argparse.Namespace) -> int:
         "num_classes": arguments.num_classes,
         "model": arguments.model,
         "width": arguments.width,
+        "embedding_dim": arguments.embedding_dim,
         "stage_depths": list(arguments.stage_depths),
         "stem_stride": arguments.stem_stride,
         "reparameterize_depthwise": arguments.reparameterize_depthwise,
@@ -196,6 +198,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _build_benchmark_model(arguments: argparse.Namespace) -> torch.nn.Module:
     classifier_options = {
         "classification_head": arguments.classification_head,
+        "embedding_dim": arguments.embedding_dim,
         "logit_scale": arguments.logit_scale,
         "angular_margin": arguments.angular_margin,
     }

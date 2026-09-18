@@ -30,6 +30,7 @@ class TorchvisionClassifierBaseline(nn.Module):
         classifier: nn.Module,
         in_channels: int,
         classification_head: str,
+        backbone_output_channels: int,
         embedding_dim: int,
         logit_scale: float,
         angular_margin: float,
@@ -41,6 +42,7 @@ class TorchvisionClassifierBaseline(nn.Module):
         self.classifier = classifier
         self.effective_input_channels = in_channels
         self.classification_head = classification_head
+        self.backbone_output_channels = backbone_output_channels
         self.embedding_dim = embedding_dim
         self.logit_scale = logit_scale
         self.angular_margin = angular_margin
@@ -76,6 +78,7 @@ def build_resnet18(
     num_classes: int,
     in_channels: int = 1,
     classification_head: str = "softmax",
+    embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
 ) -> nn.Module:
@@ -99,6 +102,7 @@ def build_resnet18(
         classifier=classifier,
         in_channels=in_channels,
         classification_head=classification_head,
+        embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
     )
@@ -109,6 +113,7 @@ def build_mobilenet_v3_small(
     num_classes: int,
     in_channels: int = 1,
     classification_head: str = "softmax",
+    embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
 ) -> nn.Module:
@@ -132,6 +137,7 @@ def build_mobilenet_v3_small(
         classifier=classifier,
         in_channels=in_channels,
         classification_head=classification_head,
+        embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
     )
@@ -142,6 +148,7 @@ def build_shufflenet_v2_x1_0(
     num_classes: int,
     in_channels: int = 1,
     classification_head: str = "softmax",
+    embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
 ) -> nn.Module:
@@ -165,6 +172,7 @@ def build_shufflenet_v2_x1_0(
         classifier=classifier,
         in_channels=in_channels,
         classification_head=classification_head,
+        embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
     )
@@ -175,6 +183,7 @@ def build_efficientnet_b0(
     num_classes: int,
     in_channels: int = 1,
     classification_head: str = "softmax",
+    embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
 ) -> nn.Module:
@@ -198,6 +207,7 @@ def build_efficientnet_b0(
         classifier=classifier,
         in_channels=in_channels,
         classification_head=classification_head,
+        embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
     )
@@ -233,13 +243,36 @@ def _wrap_baseline(
     classifier: nn.Module,
     in_channels: int,
     classification_head: str,
+    embedding_dim: int | None,
     logit_scale: float,
     angular_margin: float,
 ) -> TorchvisionClassifierBaseline:
     if classification_head not in {"softmax", "cosface", "arcface"}:
         raise ValueError("classification_head must be cosface, arcface, or softmax")
+    if embedding_dim is not None and embedding_dim < 1:
+        raise ValueError("embedding_dim must be positive when set")
     final_linear = _final_linear(classifier)
-    if classification_head == "softmax":
+    backbone_output_channels = _classifier_input_dim(classifier)
+    use_common_projection = embedding_dim is not None
+    resolved_embedding_dim = embedding_dim or backbone_output_channels
+    if use_common_projection:
+        embedding_projection = nn.Linear(
+            backbone_output_channels,
+            resolved_embedding_dim,
+            bias=False,
+        )
+        resolved_classifier = (
+            nn.Linear(resolved_embedding_dim, final_linear.out_features)
+            if classification_head == "softmax"
+            else AngularMarginClassifier(
+                resolved_embedding_dim,
+                final_linear.out_features,
+                classification_head,
+                logit_scale,
+                angular_margin,
+            )
+        )
+    elif classification_head == "softmax":
         embedding_projection = nn.Identity()
         resolved_classifier = classifier
     else:
@@ -258,7 +291,12 @@ def _wrap_baseline(
         classifier=resolved_classifier,
         in_channels=in_channels,
         classification_head=classification_head,
-        embedding_dim=final_linear.in_features,
+        backbone_output_channels=backbone_output_channels,
+        embedding_dim=(
+            resolved_embedding_dim
+            if use_common_projection
+            else final_linear.in_features
+        ),
         logit_scale=logit_scale,
         angular_margin=angular_margin,
     )
@@ -270,6 +308,18 @@ def _final_linear(classifier: nn.Module) -> nn.Linear:
     if isinstance(classifier, nn.Sequential) and isinstance(classifier[-1], nn.Linear):
         return classifier[-1]
     raise TypeError("baseline classifier must end in a Linear layer")
+
+
+def _classifier_input_dim(classifier: nn.Module) -> int:
+    if isinstance(classifier, nn.Linear):
+        return classifier.in_features
+    if isinstance(classifier, nn.Sequential):
+        first_linear = next(
+            (module for module in classifier if isinstance(module, nn.Linear)), None
+        )
+        if first_linear is not None:
+            return first_linear.in_features
+    raise TypeError("baseline classifier must contain a Linear layer")
 
 
 def _classifier_prefix(classifier: nn.Module) -> nn.Module:

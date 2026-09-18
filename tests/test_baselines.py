@@ -21,6 +21,33 @@ from hccr.training.workflow import (
 
 
 class ReferenceBaselineTests(unittest.TestCase):
+    def test_all_baselines_support_the_same_learned_320d_cosface_classifier(
+        self,
+    ) -> None:
+        specifications = {
+            "resnet18": (512, {}),
+            "mobilenet_v3_small": (576, {}),
+            "shufflenet_v2_x1_0": (1024, {}),
+            "efficientnet_b0": (1280, {}),
+        }
+        for name, (backbone_dim, options) in specifications.items():
+            with self.subTest(name=name):
+                model = build_model(
+                    name,
+                    num_classes=11,
+                    classification_head="cosface",
+                    embedding_dim=320,
+                    **options,
+                ).eval()
+                self.assertIsInstance(model.embedding_projection, torch.nn.Linear)
+                self.assertEqual(model.embedding_projection.in_features, backbone_dim)
+                self.assertEqual(model.embedding_projection.out_features, 320)
+                self.assertIsNone(model.embedding_projection.bias)
+                self.assertEqual(model.classifier.in_features, 320)
+                self.assertEqual(model.classifier.out_features, 11)
+                self.assertEqual(model.backbone_output_channels, backbone_dim)
+                self.assertEqual(model.embedding_dim, 320)
+
     def test_reference_baselines_accept_grayscale_and_return_class_logits(self) -> None:
         for name in (
             "resnet18",
@@ -81,6 +108,21 @@ class ReferenceBaselineTests(unittest.TestCase):
         self.assertEqual(metadata["classification_head"], "cosface")
         self.assertEqual(metadata["logit_scale"], 16.0)
         self.assertEqual(metadata["angular_margin"], 0.2)
+
+    def test_training_workflow_records_common_projection_for_baseline(self) -> None:
+        config = TrainingConfig(
+            manifest_path=Path("manifest.csv"),
+            output_dir=Path("experiments"),
+            num_classes=5,
+            model="resnet18",
+            classification_head="cosface",
+            embedding_dim=320,
+        )
+        model = _build_training_model(config, num_classes=5)
+        metadata = _model_metadata(model, config, num_classes=5)
+        self.assertEqual(metadata["backbone_output_channels"], 512)
+        self.assertEqual(metadata["embedding_dim"], 320)
+        self.assertEqual(metadata["resolved_embedding_dim"], 320)
 
     def test_cosface_baseline_completes_a_training_step(self) -> None:
         model = build_model(

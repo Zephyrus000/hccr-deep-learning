@@ -236,6 +236,42 @@ class ExperimentRunnerTests(unittest.TestCase):
         inputs = torch.rand(2, 1, 32, 32)
         torch.testing.assert_close(source(inputs), restored(inputs))
 
+    def test_model_from_run_restores_projected_cosface_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            source = build_model(
+                "mobilenet_v3_small",
+                num_classes=11,
+                classification_head="cosface",
+                embedding_dim=320,
+            ).eval()
+            torch.save(source.state_dict(), run_dir / "checkpoint.pt")
+            (run_dir / "checkpoint_metadata.json").write_text(
+                dumps(
+                    {
+                        "model": {
+                            "name": "mobilenet_v3_small",
+                            "num_classes": 11,
+                            "in_channels": 1,
+                            "classification_head": "cosface",
+                            "embedding_dim": 320,
+                            "logit_scale": 32.0,
+                            "angular_margin": 0.1,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            restored = _model_from_run(run_dir, "cpu").eval()
+            full_head = _model_from_run(run_dir, "cpu", num_classes_override=100)
+
+        self.assertEqual(restored.embedding_projection.in_features, 576)
+        self.assertEqual(restored.embedding_projection.out_features, 320)
+        self.assertEqual(restored.classifier.in_features, 320)
+        self.assertEqual(full_head.classifier.out_features, 100)
+        inputs = torch.rand(2, 1, 32, 32)
+        torch.testing.assert_close(source(inputs), restored(inputs))
+
     def test_model_from_run_restores_decoupled_projection_and_full_head(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)

@@ -72,8 +72,8 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         "--embedding-dim",
         type=int,
         help=(
-            "CosFace/ArcFace embedding dimension. Keep unset for the legacy "
-            "width*4 value; set independently to cap full-class head growth."
+            "Shared embedding dimension before the classifier. Keep unset for "
+            "each model's legacy head; set to 320 for the common-projection study."
         ),
     )
     parser.add_argument("--dropout", type=float, default=0.1)

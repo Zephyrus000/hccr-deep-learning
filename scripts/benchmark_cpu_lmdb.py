@@ -273,6 +273,7 @@ def _model_from_run(run_dir: Path) -> tuple[torch.nn.Module, str]:
         else {
             "in_channels",
             "classification_head",
+            "embedding_dim",
             "logit_scale",
             "angular_margin",
         }

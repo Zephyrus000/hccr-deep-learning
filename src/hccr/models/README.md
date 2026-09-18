@@ -30,6 +30,12 @@ grayscale HCCR input. Their normal softmax classifier remains the default, while
 layer and retains each architecture's penultimate projection. This permits a
 matched angular-margin head across proposed and reference models.
 
+For the stricter baseline-fairness study, set `embedding_dim=320` on each
+torchvision baseline. This removes its original classifier prefix and applies a
+learned `Linear(native_backbone_dim, 320, bias=False)` before the common
+`CosFace(320, num_classes)` classifier. EfficientHCCRNet is left unchanged;
+leaving `embedding_dim` unset preserves legacy baseline checkpoints exactly.
+
 Each baseline exposes `backbone` and `classifier` separately. Resource reports
 therefore measure its classifier and project the last logits layer to the
 full-class setting without treating the whole model as an opaque block.
