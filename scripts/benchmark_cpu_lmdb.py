@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import platform
+import statistics
 import time
+from datetime import datetime, timezone
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -58,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iterations", type=int, default=3000)
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--sample-index", type=int, default=0)
+    parser.add_argument("--summary", type=Path, default=Path("experiments/experiment_summary.csv"))
+    parser.add_argument("--selection-seed", type=int, default=20260918)
     parser.add_argument(
         "--output",
         type=Path,
@@ -77,7 +82,7 @@ def benchmark_model(
     repeat_summaries = []
     model.eval()
     with torch.inference_mode():
-        for _ in range(repetitions):
+        for repetition_index in range(repetitions):
             for _ in range(warmup_iterations):
                 model(sample)
             timings = []
@@ -85,7 +90,12 @@ def benchmark_model(
                 started_at = time.perf_counter_ns()
                 model(sample)
                 timings.append((time.perf_counter_ns() - started_at) / 1_000_000)
-            repeat_summaries.append(summarize_timings(timings, batch_size=1))
+            summary = summarize_timings(timings, batch_size=1)
+            summary.update({"repetition_index": repetition_index,
+                            "latency_std_ms": statistics.stdev(timings),
+                            "latency_min_ms": min(timings), "latency_max_ms": max(timings),
+                            "timed_pass_count": len(timings)})
+            repeat_summaries.append(summary)
     return aggregate_timing_summaries(repeat_summaries)
 
 
@@ -115,7 +125,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("benchmark split contains no samples")
     sample_index = arguments.sample_index % len(dataset)
     sample = dataset[sample_index][0].unsqueeze(0)
+    selected_manifest = _select_runs(arguments.summary, arguments.experiments)
+    selected = [item["run_id"] for item in selected_manifest]
+    execution_order = list(selected)
+    import random
+    random.Random(arguments.selection_seed).shuffle(execution_order)
     report = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "schema_version": BENCHMARK_SCHEMA_VERSION,
         "benchmark_protocol": build_benchmark_protocol(
             device="cpu",
@@ -126,7 +142,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             scope="model_forward",
             metadata={
                 "dtype": "float32",
-                "mode": arguments.mode,
+                "execution_mode": arguments.mode, "optimized": arguments.mode == "optimized",
                 "optimization_transforms": (
                     []
                     if arguments.mode == "eager"
@@ -143,11 +159,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "lmdb_path": str(arguments.lmdb),
                 "split": arguments.split,
                 "sample_index": sample_index,
+                "cpu_model": platform.processor(), "operating_system": platform.platform(),
+                "python_version": platform.python_version(), "pytorch_version": torch.__version__,
+                "aggregation_convention": "checkpoint=median of five repetition means/p50/p95; model=mean and sample SD over seeds",
             },
         ),
         "results": [],
+        "selected_run_manifest": selected_manifest, "execution_order": execution_order,
     }
-    for config_path in _config_paths(arguments.experiments, arguments.runs):
+    for run_id in execution_order:
+        config_path = arguments.experiments / run_id / "config.json"
         run_dir = config_path.parent
         checkpoint = run_dir / "checkpoint.pt"
         if not checkpoint.is_file():
@@ -210,6 +231,23 @@ def _config_paths(experiments: Path, runs: Sequence[Path] | None) -> list[Path]:
         return [direct_config]
     return sorted(experiments.glob("*/config.json"))
 
+def _select_runs(summary: Path, experiments: Path) -> list[str]:
+    required = {"resnet18", "efficientnet_b0", "efficient_hccr", "mobilenet_v3_small", "shufflenet_v2_x1_0"}
+    rows = list(csv.DictReader(summary.open(encoding="utf-8")))
+    chosen = []
+    manifest = []
+    for model in sorted(required):
+        for seed in (7, 17, 29):
+            candidates = [r for r in rows if r["model"] == model and int(r["seed"]) == seed
+                          and (model != "efficient_hccr" or r["reparameterize_depthwise"].lower() == "false")]
+            if len(candidates) != 1:
+                raise ValueError(f"expected exactly one candidate for {model} seed {seed}, found {len(candidates)}")
+            r = candidates[0]; run = experiments / r["run_id"]; checkpoint = run / "checkpoint.pt"
+            if not checkpoint.is_file(): raise FileNotFoundError(checkpoint)
+            chosen.append(r["run_id"]); manifest.append({"model": model, "seed": seed, "run_id": r["run_id"], "reparameterize_depthwise": r["reparameterize_depthwise"], "checkpoint": str(checkpoint), "checkpoint_exists": True})
+    print(json.dumps({"selected_run_manifest": manifest}, indent=2))
+    return manifest
+
 
 def _model_from_run(run_dir: Path) -> tuple[torch.nn.Module, str]:
     metadata = json.loads(
@@ -260,6 +298,14 @@ def _write_report(output: Path, report: dict[str, Any]) -> None:
         writer = csv.DictWriter(handle, fieldnames=csv_rows[0].keys())
         writer.writeheader()
         writer.writerows(csv_rows)
+    summary_rows = []
+    for model in sorted({r["model_name"] for r in report["results"]}):
+        vals = [r for r in report["results"] if r["model_name"] == model]
+        def metric(key): return [statistics.median(x[key] for x in v["repeat_summaries"]) for v in vals]
+        means, p50s, p95s = metric("latency_mean_ms"), metric("latency_p50_ms"), metric("latency_p95_ms")
+        summary_rows.append({"model": model, "seeds": "7,17,29", "mean_latency_mean_ms": statistics.mean(means), "mean_latency_std_ms": statistics.stdev(means), "p50_mean_ms": statistics.mean(p50s), "p50_std_ms": statistics.stdev(p50s), "p95_mean_ms": statistics.mean(p95s), "p95_std_ms": statistics.stdev(p95s)})
+    with output.with_name(output.stem + "_summary.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=summary_rows[0].keys()); writer.writeheader(); writer.writerows(summary_rows)
 
 
 if __name__ == "__main__":

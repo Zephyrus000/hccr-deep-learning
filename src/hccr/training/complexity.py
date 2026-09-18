@@ -204,6 +204,7 @@ _CUSTOM_FLOP_MAPPING: dict[Any, Callable[..., int]] = {
     _aten.convolution_overrideable: _convolution_flops,
     _aten._slow_conv2d_forward: _convolution_flops,
     _aten._native_batch_norm_legit_no_training: _batch_norm_inference_flops,
+    _aten.cudnn_batch_norm: _batch_norm_inference_flops,
     _aten.add: _elementwise_formula(1),
     _aten.add_: _elementwise_formula(1),
     _aten.sub: _elementwise_formula(1),

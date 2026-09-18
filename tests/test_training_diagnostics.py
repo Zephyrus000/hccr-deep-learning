@@ -294,6 +294,25 @@ class RetainedInputCostTests(unittest.TestCase):
             132,
         )
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is unavailable")
+    def test_cuda_batch_norm_has_complete_operator_flop_coverage(self) -> None:
+        model = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 2, 3, padding=1, bias=False),
+            torch.nn.BatchNorm2d(2),
+            torch.nn.ReLU(),
+            torch.nn.AdaptiveAvgPool2d(1),
+            torch.nn.Flatten(),
+            torch.nn.Linear(2, 3),
+        ).cuda()
+        flops, coverage = estimate_flops_by_component(model, 4, "cuda")
+        self.assertEqual(flops["total"], 787)
+        self.assertTrue(coverage["complete"])
+        self.assertEqual(coverage["unsupported_operator_types"], [])
+        self.assertEqual(
+            coverage["flops_by_operator"]["aten.cudnn_batch_norm"],
+            132,
+        )
+
     def test_grayscale_model_has_no_input_adapter_macs(self) -> None:
         image_size = 32
         model = EfficientHCCRNet(num_classes=11, width=8)
