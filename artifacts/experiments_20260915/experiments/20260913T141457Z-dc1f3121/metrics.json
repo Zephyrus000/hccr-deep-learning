@@ -1,0 +1,78 @@
+{
+  "schema_version": 2,
+  "run_id": "20260913T141457Z-dc1f3121",
+  "precision": {
+    "requested": "bfloat16",
+    "resolved": "bfloat16",
+    "autocast_enabled": true,
+    "autocast_dtype": "bfloat16",
+    "grad_scaler": false
+  },
+  "validation": {
+    "split": "validation",
+    "best": {
+      "top1": 0.9748859797852345,
+      "top5": 0.9955706268154515,
+      "macro_recall": 0.975920739633775,
+      "head_recall": 0.9749394243620334,
+      "mid_recall": 0.9754264283116669,
+      "tail_recall": 0.9783853328602352
+    },
+    "latest": {
+      "top1": 0.9748859797852345,
+      "top5": 0.9955706268154515,
+      "macro_recall": 0.975920739633775,
+      "head_recall": 0.9749394243620334,
+      "mid_recall": 0.9754264283116669,
+      "tail_recall": 0.9783853328602352
+    },
+    "stability": {
+      "drop_threshold": 0.05,
+      "largest_single_epoch_drop": 0.328864529526964,
+      "max_drawdown_from_prior_best": 0.328864529526964,
+      "unstable_epoch_count": 1,
+      "best_top1": 0.9748859797852345,
+      "best_epoch": 20,
+      "final_top1": 0.9748859797852345
+    },
+    "selected": {
+      "top1": 0.9748859797852345,
+      "top5": 0.9955706268154515,
+      "macro_recall": 0.975920739633775,
+      "head_recall": 0.9749394243620334,
+      "mid_recall": 0.9754264283116669,
+      "tail_recall": 0.9783853328602352
+    }
+  },
+  "test": {
+    "split": "test",
+    "status": "completed",
+    "reason": null,
+    "evaluation_policy": "final_test",
+    "writer_provenance": {
+      "availability": "unavailable",
+      "overlap_check": "not_verifiable",
+      "writer_disjoint_verified": null,
+      "known_writer_samples": 0,
+      "missing_writer_samples": 3821455,
+      "train_validation_test_overlap_count": 0
+    },
+    "checkpoint": "checkpoint.pt",
+    "metrics": {
+      "top1": 0.9632968205305042,
+      "top5": 0.99234497324849,
+      "macro_recall": 0.9673767298024746,
+      "head_recall": 0.9578897461326799,
+      "mid_recall": 0.966474071638516,
+      "tail_recall": 0.979572316118748,
+      "samples": 742388,
+      "classes": 7186,
+      "mean_confidence": 0.9808020693592162,
+      "expected_calibration_error": 0.01761736642354281,
+      "recorded_errors": 1000,
+      "unique_confusion_pairs": 17964
+    },
+    "bn_recalibration": null,
+    "available": true
+  }
+}

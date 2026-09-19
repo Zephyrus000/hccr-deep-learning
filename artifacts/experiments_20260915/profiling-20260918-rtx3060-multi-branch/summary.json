@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "completed_at": "2026-09-17T19:48:56.483046+00:00",
+  "protocol": {
+    "device": "cuda",
+    "warmup_iterations": 20,
+    "benchmark_iterations": 200,
+    "benchmark_repetitions": 5,
+    "source_runs_root": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments"
+  },
+  "included_run_count": 3,
+  "excluded_runs": [],
+  "runs": [
+    {
+      "run_id": "20260914T040219Z-d03507d1",
+      "seed": 7,
+      "model": "efficient_hccr",
+      "classification_head": "cosface",
+      "reparameterize_depthwise": true,
+      "device": "cuda",
+      "parameter_count": 2728960,
+      "estimated_macs": 132636800,
+      "estimated_flops": 288416759,
+      "flop_coverage_complete": true,
+      "eager_batch1_p50_ms": 7.115100001101382,
+      "eager_batch1_p95_ms": 8.21550001273863,
+      "optimized_parameter_count": 2712320,
+      "optimized_estimated_macs": 128351360,
+      "optimized_estimated_flops": 267646199,
+      "optimized_flop_coverage_complete": true,
+      "optimized_batch1_p50_ms": 2.9943999979877844,
+      "optimized_batch1_p95_ms": 3.7733999924967065,
+      "checkpoint_sha256": "e8b0f3635a75823dc4d5c51ffb9ca09b96f8794b08800d2018c7ca1b7fce4c6c"
+    },
+    {
+      "run_id": "20260914T114052Z-00692c42",
+      "seed": 17,
+      "model": "efficient_hccr",
+      "classification_head": "cosface",
+      "reparameterize_depthwise": true,
+      "device": "cuda",
+      "parameter_count": 2728960,
+      "estimated_macs": 132636800,
+      "estimated_flops": 288416759,
+      "flop_coverage_complete": true,
+      "eager_batch1_p50_ms": 7.229199996800162,
+      "eager_batch1_p95_ms": 9.021000005304813,
+      "optimized_parameter_count": 2712320,
+      "optimized_estimated_macs": 128351360,
+      "optimized_estimated_flops": 267646199,
+      "optimized_flop_coverage_complete": true,
+      "optimized_batch1_p50_ms": 3.0208999960450456,
+      "optimized_batch1_p95_ms": 3.7995000020600855,
+      "checkpoint_sha256": "902788a90459513f8ac19917e1fa32fce231aa64dd07171a5446b5a6f1827266"
+    },
+    {
+      "run_id": "20260914T191814Z-89bc5055",
+      "seed": 29,
+      "model": "efficient_hccr",
+      "classification_head": "cosface",
+      "reparameterize_depthwise": true,
+      "device": "cuda",
+      "parameter_count": 2728960,
+      "estimated_macs": 132636800,
+      "estimated_flops": 288416759,
+      "flop_coverage_complete": true,
+      "eager_batch1_p50_ms": 7.1641000104136765,
+      "eager_batch1_p95_ms": 8.917099999962375,
+      "optimized_parameter_count": 2712320,
+      "optimized_estimated_macs": 128351360,
+      "optimized_estimated_flops": 267646199,
+      "optimized_flop_coverage_complete": true,
+      "optimized_batch1_p50_ms": 1.4316000015242025,
+      "optimized_batch1_p95_ms": 2.5865000061457977,
+      "checkpoint_sha256": "18aa8434f82c42bcc641d0edacc0f2c2348c94a9b41fbd883f94f6bf6088ecd3"
+    }
+  ],
+  "variants": {
+    "efficient_hccr|head=cosface|reparam=true": {
+      "run_ids": [
+        "20260914T040219Z-d03507d1",
+        "20260914T114052Z-00692c42",
+        "20260914T191814Z-89bc5055"
+      ],
+      "seeds": [
+        7,
+        17,
+        29
+      ],
+      "parameter_count": 2728960,
+      "estimated_macs": 132636800,
+      "estimated_flops": 288416759,
+      "latency_ms": {
+        "eager_batch1_p50_ms": {
+          "mean": 7.169466669438407,
+          "std": 0.05723899917391274,
+          "n": 3
+        },
+        "eager_batch1_p95_ms": {
+          "mean": 8.717866672668606,
+          "std": 0.43815293966198576,
+          "n": 3
+        },
+        "optimized_batch1_p50_ms": {
+          "mean": 2.482299998519011,
+          "std": 0.9100293540528934,
+          "n": 3
+        },
+        "optimized_batch1_p95_ms": {
+          "mean": 3.3864666669008634,
+          "std": 0.6929143499484692,
+          "n": 3
+        }
+      }
+    }
+  }
+}

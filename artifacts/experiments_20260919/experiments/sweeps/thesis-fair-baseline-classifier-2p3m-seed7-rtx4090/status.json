@@ -1,0 +1,144 @@
+{
+  "status": "completed",
+  "started_at": "2026-09-18T07:27:30.378613+00:00",
+  "updated_at": "2026-09-18T20:05:58.743600+00:00",
+  "active_job": null,
+  "records": [
+    {
+      "key": "resnet18_common320_cosface/seed-7",
+      "variant": "resnet18_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T072746Z-416c5a6b",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T072746Z-416c5a6b",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9756943075325631,
+        "top5": 0.9956199150927276,
+        "macro_recall": 0.9766878887737643,
+        "head_recall": 0.97557156875465,
+        "mid_recall": 0.9763584859670135,
+        "tail_recall": 0.978792646442642
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9658817222261136,
+        "top5": 0.9927814027166387,
+        "macro_recall": 0.9697211891631539,
+        "head_recall": 0.9605786149132878,
+        "mid_recall": 0.9692491653952539,
+        "tail_recall": 0.9802801631953337,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.9813681091204038,
+        "expected_calibration_error": 0.015486386894290237,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 17036
+      },
+      "profiles": {}
+    },
+    {
+      "key": "mobilenet_v3_small_common320_cosface/seed-7",
+      "variant": "mobilenet_v3_small_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T092636Z-be72cb91",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T092636Z-be72cb91",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9535934440019452,
+        "top5": 0.9914566986054704,
+        "macro_recall": 0.9566189279015679,
+        "head_recall": 0.9496309626312103,
+        "mid_recall": 0.9564078040181733,
+        "tail_recall": 0.9642404117420001
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9402778600947214,
+        "top5": 0.9875913942574502,
+        "macro_recall": 0.9476413793150572,
+        "head_recall": 0.9287896402775566,
+        "mid_recall": 0.9470371545937399,
+        "tail_recall": 0.9683062129930029,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.9550832457052203,
+        "expected_calibration_error": 0.014856077627087022,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 29871
+      },
+      "profiles": {}
+    },
+    {
+      "key": "efficientnet_b0_common320_cosface/seed-7",
+      "variant": "efficientnet_b0_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T121954Z-35e13f1e",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T121954Z-35e13f1e",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9738114953406148,
+        "top5": 0.9956823469106107,
+        "macro_recall": 0.9743215266921498,
+        "head_recall": 0.9743036952700239,
+        "mid_recall": 0.9739499418409003,
+        "tail_recall": 0.9754543712517753
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9643151559561847,
+        "top5": 0.9930481096138407,
+        "macro_recall": 0.9679067272463481,
+        "head_recall": 0.9594581449397751,
+        "mid_recall": 0.9674514695618165,
+        "tail_recall": 0.9777213994177086,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.979562165780541,
+        "expected_calibration_error": 0.015247009824356287,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 17974
+      },
+      "profiles": {}
+    },
+    {
+      "key": "shufflenet_v2_x1_0_common320_cosface/seed-7",
+      "variant": "shufflenet_v2_x1_0_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T165011Z-9217c94e",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T165011Z-9217c94e",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9589132920626158,
+        "top5": 0.9926297596046423,
+        "macro_recall": 0.9598190997102323,
+        "head_recall": 0.9580144181565388,
+        "mid_recall": 0.9597853246217706,
+        "tail_recall": 0.9617251300331994
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9537492524124851,
+        "top5": 0.9908417161915333,
+        "macro_recall": 0.9571867995081047,
+        "head_recall": 0.9487620904987436,
+        "mid_recall": 0.9570775108517424,
+        "tail_recall": 0.9659394505398976,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.9662426939677466,
+        "expected_calibration_error": 0.01249344155526153,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 24370
+      },
+      "profiles": {}
+    }
+  ]
+}

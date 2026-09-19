@@ -1,0 +1,1333 @@
+{
+  "schema_version": 2,
+  "status": "completed",
+  "jobs": {
+    "planned": 4,
+    "completed": 4,
+    "failed": 0,
+    "missing": 0
+  },
+  "experiment_id": "thesis-fair-baseline-classifier-2p3m-seed7-rtx4090",
+  "started_at": "2026-09-18T07:27:30.378613+00:00",
+  "completed_at": "2026-09-18T20:05:58.743131+00:00",
+  "spec": {
+    "experiment_id": "thesis-fair-baseline-classifier-2p3m-seed7-rtx4090",
+    "manifest": "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+    "output_dir": "/root/hccr-deep-learning/experiments",
+    "seeds": [
+      7
+    ],
+    "base_args": {
+      "model": "resnet18",
+      "device": "cuda",
+      "precision": "bfloat16",
+      "distributed": false,
+      "dataset_backend": "lmdb",
+      "evaluation_policy": "final_test",
+      "reproducibility_mode": "strict",
+      "num_classes": 7186,
+      "image_size": 96,
+      "batch_size": 256,
+      "reference_batch_size": 256,
+      "optimizer_step_policy": "configured_epochs",
+      "learning_rate_scaling": "none",
+      "epochs": 20,
+      "learning_rate": 0.0003,
+      "lr_warmup_ratio": 0.0,
+      "weight_decay": 0.0001,
+      "classification_head": "cosface",
+      "embedding_dim": 320,
+      "logit_scale": 32.0,
+      "angular_margin": 0.1,
+      "margin_warmup_ratio": 0.2,
+      "label_smoothing": 0.0,
+      "scheduler": "cosine",
+      "scheduler_min_lr": 1e-06,
+      "scheduler_patience": 3,
+      "early_stopping_patience": 0,
+      "num_workers": 12,
+      "dataloader_start_method": "auto",
+      "prefetch_factor": 1,
+      "persistent_workers": true,
+      "worker_timeout_seconds": 120.0,
+      "benchmark_warmup_iterations": 1,
+      "benchmark_iterations": 1,
+      "benchmark_repetitions": 1
+    },
+    "variants": [
+      {
+        "name": "resnet18_common320_cosface",
+        "args": {
+          "model": "resnet18"
+        }
+      },
+      {
+        "name": "mobilenet_v3_small_common320_cosface",
+        "args": {
+          "model": "mobilenet_v3_small"
+        }
+      },
+      {
+        "name": "efficientnet_b0_common320_cosface",
+        "args": {
+          "model": "efficientnet_b0"
+        }
+      },
+      {
+        "name": "shufflenet_v2_x1_0_common320_cosface",
+        "args": {
+          "model": "shufflenet_v2_x1_0"
+        }
+      }
+    ],
+    "profile_devices": [],
+    "full_class_num_classes": 7186,
+    "torchrun_nproc_per_node": null,
+    "required_cuda_device_count": 1,
+    "required_cuda_device_name": "RTX 4090"
+  },
+  "baseline_variant": "resnet18_common320_cosface",
+  "records": [
+    {
+      "key": "resnet18_common320_cosface/seed-7",
+      "variant": "resnet18_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T072746Z-416c5a6b",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T072746Z-416c5a6b",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9756943075325631,
+        "top5": 0.9956199150927276,
+        "macro_recall": 0.9766878887737643,
+        "head_recall": 0.97557156875465,
+        "mid_recall": 0.9763584859670135,
+        "tail_recall": 0.978792646442642
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9658817222261136,
+        "top5": 0.9927814027166387,
+        "macro_recall": 0.9697211891631539,
+        "head_recall": 0.9605786149132878,
+        "mid_recall": 0.9692491653952539,
+        "tail_recall": 0.9802801631953337,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.9813681091204038,
+        "expected_calibration_error": 0.015486386894290237,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 17036
+      },
+      "profiles": {}
+    },
+    {
+      "key": "mobilenet_v3_small_common320_cosface/seed-7",
+      "variant": "mobilenet_v3_small_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T092636Z-be72cb91",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T092636Z-be72cb91",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9535934440019452,
+        "top5": 0.9914566986054704,
+        "macro_recall": 0.9566189279015679,
+        "head_recall": 0.9496309626312103,
+        "mid_recall": 0.9564078040181733,
+        "tail_recall": 0.9642404117420001
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9402778600947214,
+        "top5": 0.9875913942574502,
+        "macro_recall": 0.9476413793150572,
+        "head_recall": 0.9287896402775566,
+        "mid_recall": 0.9470371545937399,
+        "tail_recall": 0.9683062129930029,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.9550832457052203,
+        "expected_calibration_error": 0.014856077627087022,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 29871
+      },
+      "profiles": {}
+    },
+    {
+      "key": "efficientnet_b0_common320_cosface/seed-7",
+      "variant": "efficientnet_b0_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T121954Z-35e13f1e",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T121954Z-35e13f1e",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9738114953406148,
+        "top5": 0.9956823469106107,
+        "macro_recall": 0.9743215266921498,
+        "head_recall": 0.9743036952700239,
+        "mid_recall": 0.9739499418409003,
+        "tail_recall": 0.9754543712517753
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9643151559561847,
+        "top5": 0.9930481096138407,
+        "macro_recall": 0.9679067272463481,
+        "head_recall": 0.9594581449397751,
+        "mid_recall": 0.9674514695618165,
+        "tail_recall": 0.9777213994177086,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.979562165780541,
+        "expected_calibration_error": 0.015247009824356287,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 17974
+      },
+      "profiles": {}
+    },
+    {
+      "key": "shufflenet_v2_x1_0_common320_cosface/seed-7",
+      "variant": "shufflenet_v2_x1_0_common320_cosface",
+      "seed": 7,
+      "status": "completed",
+      "run_id": "20260918T165011Z-9217c94e",
+      "run_path": "/root/hccr-deep-learning/experiments/20260918T165011Z-9217c94e",
+      "metrics_schema": "nested-v2",
+      "selection_split": "validation",
+      "selection_metrics": {
+        "top1": 0.9589132920626158,
+        "top5": 0.9926297596046423,
+        "macro_recall": 0.9598190997102323,
+        "head_recall": 0.9580144181565388,
+        "mid_recall": 0.9597853246217706,
+        "tail_recall": 0.9617251300331994
+      },
+      "test_status": "completed",
+      "test_metrics": {
+        "top1": 0.9537492524124851,
+        "top5": 0.9908417161915333,
+        "macro_recall": 0.9571867995081047,
+        "head_recall": 0.9487620904987436,
+        "mid_recall": 0.9570775108517424,
+        "tail_recall": 0.9659394505398976,
+        "samples": 742388,
+        "classes": 7186,
+        "mean_confidence": 0.9662426939677466,
+        "expected_calibration_error": 0.01249344155526153,
+        "recorded_errors": 1000,
+        "unique_confusion_pairs": 24370
+      },
+      "profiles": {}
+    }
+  ],
+  "variants": {
+    "resnet18_common320_cosface": {
+      "planned_seeds": [
+        7
+      ],
+      "completed_seeds": [
+        7
+      ],
+      "failed_seeds": [],
+      "seed_metrics": {
+        "7": {
+          "top1": 0.9756943075325631,
+          "top5": 0.9956199150927276,
+          "macro_recall": 0.9766878887737643,
+          "head_recall": 0.97557156875465,
+          "mid_recall": 0.9763584859670135,
+          "tail_recall": 0.978792646442642
+        }
+      },
+      "metrics": {
+        "top1": {
+          "count": 1,
+          "mean": 0.9756943075325631,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9756943075325631,
+          "max": 0.9756943075325631,
+          "values": [
+            0.9756943075325631
+          ]
+        },
+        "top5": {
+          "count": 1,
+          "mean": 0.9956199150927276,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9956199150927276,
+          "max": 0.9956199150927276,
+          "values": [
+            0.9956199150927276
+          ]
+        },
+        "macro_recall": {
+          "count": 1,
+          "mean": 0.9766878887737643,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9766878887737643,
+          "max": 0.9766878887737643,
+          "values": [
+            0.9766878887737643
+          ]
+        },
+        "head_recall": {
+          "count": 1,
+          "mean": 0.97557156875465,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.97557156875465,
+          "max": 0.97557156875465,
+          "values": [
+            0.97557156875465
+          ]
+        },
+        "mid_recall": {
+          "count": 1,
+          "mean": 0.9763584859670135,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9763584859670135,
+          "max": 0.9763584859670135,
+          "values": [
+            0.9763584859670135
+          ]
+        },
+        "tail_recall": {
+          "count": 1,
+          "mean": 0.978792646442642,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.978792646442642,
+          "max": 0.978792646442642,
+          "values": [
+            0.978792646442642
+          ]
+        },
+        "expected_calibration_error": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        }
+      },
+      "batch1_p95_ms": {
+        "cpu": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        },
+        "cuda": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        }
+      }
+    },
+    "mobilenet_v3_small_common320_cosface": {
+      "planned_seeds": [
+        7
+      ],
+      "completed_seeds": [
+        7
+      ],
+      "failed_seeds": [],
+      "seed_metrics": {
+        "7": {
+          "top1": 0.9535934440019452,
+          "top5": 0.9914566986054704,
+          "macro_recall": 0.9566189279015679,
+          "head_recall": 0.9496309626312103,
+          "mid_recall": 0.9564078040181733,
+          "tail_recall": 0.9642404117420001
+        }
+      },
+      "metrics": {
+        "top1": {
+          "count": 1,
+          "mean": 0.9535934440019452,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9535934440019452,
+          "max": 0.9535934440019452,
+          "values": [
+            0.9535934440019452
+          ]
+        },
+        "top5": {
+          "count": 1,
+          "mean": 0.9914566986054704,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9914566986054704,
+          "max": 0.9914566986054704,
+          "values": [
+            0.9914566986054704
+          ]
+        },
+        "macro_recall": {
+          "count": 1,
+          "mean": 0.9566189279015679,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9566189279015679,
+          "max": 0.9566189279015679,
+          "values": [
+            0.9566189279015679
+          ]
+        },
+        "head_recall": {
+          "count": 1,
+          "mean": 0.9496309626312103,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9496309626312103,
+          "max": 0.9496309626312103,
+          "values": [
+            0.9496309626312103
+          ]
+        },
+        "mid_recall": {
+          "count": 1,
+          "mean": 0.9564078040181733,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9564078040181733,
+          "max": 0.9564078040181733,
+          "values": [
+            0.9564078040181733
+          ]
+        },
+        "tail_recall": {
+          "count": 1,
+          "mean": 0.9642404117420001,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9642404117420001,
+          "max": 0.9642404117420001,
+          "values": [
+            0.9642404117420001
+          ]
+        },
+        "expected_calibration_error": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        }
+      },
+      "batch1_p95_ms": {
+        "cpu": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        },
+        "cuda": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        }
+      }
+    },
+    "efficientnet_b0_common320_cosface": {
+      "planned_seeds": [
+        7
+      ],
+      "completed_seeds": [
+        7
+      ],
+      "failed_seeds": [],
+      "seed_metrics": {
+        "7": {
+          "top1": 0.9738114953406148,
+          "top5": 0.9956823469106107,
+          "macro_recall": 0.9743215266921498,
+          "head_recall": 0.9743036952700239,
+          "mid_recall": 0.9739499418409003,
+          "tail_recall": 0.9754543712517753
+        }
+      },
+      "metrics": {
+        "top1": {
+          "count": 1,
+          "mean": 0.9738114953406148,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9738114953406148,
+          "max": 0.9738114953406148,
+          "values": [
+            0.9738114953406148
+          ]
+        },
+        "top5": {
+          "count": 1,
+          "mean": 0.9956823469106107,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9956823469106107,
+          "max": 0.9956823469106107,
+          "values": [
+            0.9956823469106107
+          ]
+        },
+        "macro_recall": {
+          "count": 1,
+          "mean": 0.9743215266921498,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9743215266921498,
+          "max": 0.9743215266921498,
+          "values": [
+            0.9743215266921498
+          ]
+        },
+        "head_recall": {
+          "count": 1,
+          "mean": 0.9743036952700239,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9743036952700239,
+          "max": 0.9743036952700239,
+          "values": [
+            0.9743036952700239
+          ]
+        },
+        "mid_recall": {
+          "count": 1,
+          "mean": 0.9739499418409003,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9739499418409003,
+          "max": 0.9739499418409003,
+          "values": [
+            0.9739499418409003
+          ]
+        },
+        "tail_recall": {
+          "count": 1,
+          "mean": 0.9754543712517753,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9754543712517753,
+          "max": 0.9754543712517753,
+          "values": [
+            0.9754543712517753
+          ]
+        },
+        "expected_calibration_error": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        }
+      },
+      "batch1_p95_ms": {
+        "cpu": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        },
+        "cuda": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        }
+      }
+    },
+    "shufflenet_v2_x1_0_common320_cosface": {
+      "planned_seeds": [
+        7
+      ],
+      "completed_seeds": [
+        7
+      ],
+      "failed_seeds": [],
+      "seed_metrics": {
+        "7": {
+          "top1": 0.9589132920626158,
+          "top5": 0.9926297596046423,
+          "macro_recall": 0.9598190997102323,
+          "head_recall": 0.9580144181565388,
+          "mid_recall": 0.9597853246217706,
+          "tail_recall": 0.9617251300331994
+        }
+      },
+      "metrics": {
+        "top1": {
+          "count": 1,
+          "mean": 0.9589132920626158,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9589132920626158,
+          "max": 0.9589132920626158,
+          "values": [
+            0.9589132920626158
+          ]
+        },
+        "top5": {
+          "count": 1,
+          "mean": 0.9926297596046423,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9926297596046423,
+          "max": 0.9926297596046423,
+          "values": [
+            0.9926297596046423
+          ]
+        },
+        "macro_recall": {
+          "count": 1,
+          "mean": 0.9598190997102323,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9598190997102323,
+          "max": 0.9598190997102323,
+          "values": [
+            0.9598190997102323
+          ]
+        },
+        "head_recall": {
+          "count": 1,
+          "mean": 0.9580144181565388,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9580144181565388,
+          "max": 0.9580144181565388,
+          "values": [
+            0.9580144181565388
+          ]
+        },
+        "mid_recall": {
+          "count": 1,
+          "mean": 0.9597853246217706,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9597853246217706,
+          "max": 0.9597853246217706,
+          "values": [
+            0.9597853246217706
+          ]
+        },
+        "tail_recall": {
+          "count": 1,
+          "mean": 0.9617251300331994,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": 0.9617251300331994,
+          "max": 0.9617251300331994,
+          "values": [
+            0.9617251300331994
+          ]
+        },
+        "expected_calibration_error": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        }
+      },
+      "batch1_p95_ms": {
+        "cpu": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        },
+        "cuda": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        }
+      }
+    }
+  },
+  "comparisons": {
+    "mobilenet_v3_small_common320_cosface": {
+      "top1_mean_delta": -0.02210086353061791,
+      "macro_recall_mean_delta": -0.02006896087219645,
+      "tail_recall_mean_delta": -0.01455223470064182,
+      "paired_deltas": {
+        "top1": {
+          "count": 1,
+          "mean": -0.02210086353061791,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.02210086353061791,
+          "max": -0.02210086353061791,
+          "values": [
+            -0.02210086353061791
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        },
+        "macro_recall": {
+          "count": 1,
+          "mean": -0.02006896087219645,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.02006896087219645,
+          "max": -0.02006896087219645,
+          "values": [
+            -0.02006896087219645
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        },
+        "tail_recall": {
+          "count": 1,
+          "mean": -0.01455223470064182,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.01455223470064182,
+          "max": -0.01455223470064182,
+          "values": [
+            -0.01455223470064182
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        }
+      },
+      "latency_p95_ratio": {
+        "cpu": null,
+        "cuda": null
+      },
+      "optimized_latency_p95_ratio": {
+        "cpu": null,
+        "cuda": null
+      }
+    },
+    "efficientnet_b0_common320_cosface": {
+      "top1_mean_delta": -0.001882812191948302,
+      "macro_recall_mean_delta": -0.002366362081614559,
+      "tail_recall_mean_delta": -0.003338275190866713,
+      "paired_deltas": {
+        "top1": {
+          "count": 1,
+          "mean": -0.001882812191948302,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.001882812191948302,
+          "max": -0.001882812191948302,
+          "values": [
+            -0.001882812191948302
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        },
+        "macro_recall": {
+          "count": 1,
+          "mean": -0.002366362081614559,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.002366362081614559,
+          "max": -0.002366362081614559,
+          "values": [
+            -0.002366362081614559
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        },
+        "tail_recall": {
+          "count": 1,
+          "mean": -0.003338275190866713,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.003338275190866713,
+          "max": -0.003338275190866713,
+          "values": [
+            -0.003338275190866713
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        }
+      },
+      "latency_p95_ratio": {
+        "cpu": null,
+        "cuda": null
+      },
+      "optimized_latency_p95_ratio": {
+        "cpu": null,
+        "cuda": null
+      }
+    },
+    "shufflenet_v2_x1_0_common320_cosface": {
+      "top1_mean_delta": -0.01678101546994737,
+      "macro_recall_mean_delta": -0.016868789063532064,
+      "tail_recall_mean_delta": -0.017067516409442596,
+      "paired_deltas": {
+        "top1": {
+          "count": 1,
+          "mean": -0.01678101546994737,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.01678101546994737,
+          "max": -0.01678101546994737,
+          "values": [
+            -0.01678101546994737
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        },
+        "macro_recall": {
+          "count": 1,
+          "mean": -0.016868789063532064,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.016868789063532064,
+          "max": -0.016868789063532064,
+          "values": [
+            -0.016868789063532064
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        },
+        "tail_recall": {
+          "count": 1,
+          "mean": -0.017067516409442596,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": -0.017067516409442596,
+          "max": -0.017067516409442596,
+          "values": [
+            -0.017067516409442596
+          ],
+          "seeds": [
+            7
+          ],
+          "complete": true,
+          "baseline_only_seeds": [],
+          "candidate_only_seeds": []
+        }
+      },
+      "latency_p95_ratio": {
+        "cpu": null,
+        "cuda": null
+      },
+      "optimized_latency_p95_ratio": {
+        "cpu": null,
+        "cuda": null
+      }
+    }
+  }
+}

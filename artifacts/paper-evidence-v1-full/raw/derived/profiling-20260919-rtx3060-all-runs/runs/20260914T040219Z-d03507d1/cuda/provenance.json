@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "profiled_at": "2026-09-19T15:36:12.274852+00:00",
+  "run_id": "20260914T040219Z-d03507d1",
+  "seed": 7,
+  "source_run_directory": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T040219Z-d03507d1",
+  "source_checkpoint": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T040219Z-d03507d1\\checkpoint.pt",
+  "source_checkpoint_sha256": "e8b0f3635a75823dc4d5c51ffb9ca09b96f8794b08800d2018c7ca1b7fce4c6c",
+  "source_checkpoint_metadata": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T040219Z-d03507d1\\checkpoint_metadata.json",
+  "model": {
+    "name": "efficient_hccr",
+    "in_channels": 1,
+    "effective_input_channels": 1,
+    "classification_head": "cosface",
+    "num_classes": 7186,
+    "width": 80,
+    "backbone_output_channels": 320,
+    "embedding_dim": 320,
+    "stage_depths": [
+      2,
+      3,
+      3
+    ],
+    "stem_stride": 2,
+    "reparameterize_depthwise": true,
+    "dropout": 0.1,
+    "logit_scale": 32.0,
+    "angular_margin": 0.1
+  },
+  "preprocess": {
+    "image_size": 96,
+    "margin": 4
+  },
+  "profiling_device": "cuda"
+}

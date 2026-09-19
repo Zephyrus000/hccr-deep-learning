@@ -1,0 +1,12 @@
+{
+  "samples": 742388,
+  "classes": 7186,
+  "mean_confidence": 0.9631411344796803,
+  "expected_calibration_error": 0.021459346041467636,
+  "recorded_errors": 1000,
+  "unique_confusion_pairs": 28939,
+  "macro_recall": 0.9485889408376479,
+  "head_recall": 0.9316529093749041,
+  "mid_recall": 0.9479119279642456,
+  "tail_recall": 0.9675564820499472
+}

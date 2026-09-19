@@ -1,0 +1,196 @@
+{
+  "artifact_type": "hccr.paper_evidence_bundle",
+  "created_at": "2026-09-19T16:32:03.438180+00:00",
+  "policy": {
+    "checkpoints": "checksum_only_not_copied",
+    "missing_values": "null_with_availability_status",
+    "normalization": "derived_view_preserves_source_sha256",
+    "raw_artifacts": "copied_without_content_changes"
+  },
+  "runs": [
+    {
+      "checkpoint_sha256": "sha256:c6cb432ab088c69141bd5bf9f93d3510ec43c9236ba35a2f07d8b7c12e62f276",
+      "evidence_path": "runs/20260913T114748Z-064d3b6b/run_evidence.json",
+      "run_id": "20260913T114748Z-064d3b6b",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:c9fff0fc59281dac12a073992748068e51ef8b2ae4cee4b78c3b6f27fe7f76d8",
+      "evidence_path": "runs/20260913T114748Z-d2e5e0a9/run_evidence.json",
+      "run_id": "20260913T114748Z-d2e5e0a9",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:ad2899a76eac5cdfb716b5f7adc242b5cbe0f043ea3335e134f15cccf2fd4970",
+      "evidence_path": "runs/20260913T141457Z-dc1f3121/run_evidence.json",
+      "run_id": "20260913T141457Z-dc1f3121",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:a68bd2e8eed84ab42f17a586916ee7706419d2bae079e72413b1887654982a30",
+      "evidence_path": "runs/20260913T161718Z-010aca1f/run_evidence.json",
+      "run_id": "20260913T161718Z-010aca1f",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:9e80ef5950e435e169e4dd781862d0e84db7ae03048bb14febf1668263013583",
+      "evidence_path": "runs/20260913T164520Z-301a9fa4/run_evidence.json",
+      "run_id": "20260913T164520Z-301a9fa4",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:87fddec95f049a34edfc2665a1e39c8fa103dc6424a1df8ace59214a00c665c4",
+      "evidence_path": "runs/20260913T191551Z-65601f65/run_evidence.json",
+      "run_id": "20260913T191551Z-65601f65",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:2e579a5344b74494eef112bdf61b3dde4aca98397f5445cfbf6b74780a53e2c7",
+      "evidence_path": "runs/20260913T204726Z-7a8640ae/run_evidence.json",
+      "run_id": "20260913T204726Z-7a8640ae",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:c99b925dc8eaff5484bd172d63c46355a7ac6e950dc09ccada779f8a21b79ef1",
+      "evidence_path": "runs/20260913T225308Z-d5c6a2be/run_evidence.json",
+      "run_id": "20260913T225308Z-d5c6a2be",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:4582915e01d114a9944b2fa2a5e9ca515e5e82dcdc739961f8bf50260e02f7c9",
+      "evidence_path": "runs/20260914T022812Z-dfe2412b/run_evidence.json",
+      "run_id": "20260914T022812Z-dfe2412b",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:e8b0f3635a75823dc4d5c51ffb9ca09b96f8794b08800d2018c7ca1b7fce4c6c",
+      "evidence_path": "runs/20260914T040219Z-d03507d1/run_evidence.json",
+      "run_id": "20260914T040219Z-d03507d1",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:773f4eca2eecb663294c25a643b53fe438023a195f3d651dd5e1c1ffa7a2b8db",
+      "evidence_path": "runs/20260914T055805Z-fd15c1fa/run_evidence.json",
+      "run_id": "20260914T055805Z-fd15c1fa",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:902788a90459513f8ac19917e1fa32fce231aa64dd07171a5446b5a6f1827266",
+      "evidence_path": "runs/20260914T114052Z-00692c42/run_evidence.json",
+      "run_id": "20260914T114052Z-00692c42",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:5414359cbe4a4ccb528df4b69c62d0a10d07a25eb85700c273456aff32685a3a",
+      "evidence_path": "runs/20260914T121353Z-45eeedc8/run_evidence.json",
+      "run_id": "20260914T121353Z-45eeedc8",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:d9fe99a919cfa6499015ecb4059963487fb3106c9a78755dc1bd44a808f812cb",
+      "evidence_path": "runs/20260914T183224Z-002c745f/run_evidence.json",
+      "run_id": "20260914T183224Z-002c745f",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:18aa8434f82c42bcc641d0edacc0f2c2348c94a9b41fbd883f94f6bf6088ecd3",
+      "evidence_path": "runs/20260914T191814Z-89bc5055/run_evidence.json",
+      "run_id": "20260914T191814Z-89bc5055",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:0f59f52aef3e151807100f5c50db027a7929a75814c68f319379b3443be1ef00",
+      "evidence_path": "runs/20260915T145404Z-37829cdf/run_evidence.json",
+      "run_id": "20260915T145404Z-37829cdf",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:ab9f7210956a27ce2ef0a95e417ec78d89468ff0f4ea89669d47e04404fe8707",
+      "evidence_path": "runs/20260915T184306Z-1564e685/run_evidence.json",
+      "run_id": "20260915T184306Z-1564e685",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:f54b590cb00016d67e8b63849ee5a1be8db03c778f40206ed4d98e3f115d47d4",
+      "evidence_path": "runs/20260915T223232Z-d74ef695/run_evidence.json",
+      "run_id": "20260915T223232Z-d74ef695",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:f158460826df66214ae45f9fba2817a404d3c453ec27d3468a34b010450fb0b2",
+      "evidence_path": "runs/20260918T072746Z-416c5a6b/run_evidence.json",
+      "run_id": "20260918T072746Z-416c5a6b",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:07d47b5410f57eb5b27c41fb3b52bd1cbb9cfaf9846edff30c50a8f4cf3213d0",
+      "evidence_path": "runs/20260918T092636Z-be72cb91/run_evidence.json",
+      "run_id": "20260918T092636Z-be72cb91",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:953aa1d5f6fab8aa3a071154603aa857301cd02eb1decfdc7d540ac486881d3f",
+      "evidence_path": "runs/20260918T121954Z-35e13f1e/run_evidence.json",
+      "run_id": "20260918T121954Z-35e13f1e",
+      "source_artifact_count": 20
+    },
+    {
+      "checkpoint_sha256": "sha256:435de16cc8494748fa81bea662e55ceb9ad85c37ede186d4b52446cd086407ab",
+      "evidence_path": "runs/20260918T165011Z-9217c94e/run_evidence.json",
+      "run_id": "20260918T165011Z-9217c94e",
+      "source_artifact_count": 20
+    }
+  ],
+  "schema_version": 1,
+  "source_root": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\experiments",
+  "standalone_artifacts": [
+    {
+      "evidence_path": "standalone/cpu_eager_inference_benchmark_v2.csv.evidence.json",
+      "name": "cpu_eager_inference_benchmark_v2.csv"
+    },
+    {
+      "evidence_path": "standalone/cpu_eager_inference_benchmark_v2.json.evidence.json",
+      "name": "cpu_eager_inference_benchmark_v2.json"
+    },
+    {
+      "evidence_path": "standalone/cpu_eager_inference_benchmark_v2_summary.csv.evidence.json",
+      "name": "cpu_eager_inference_benchmark_v2_summary.csv"
+    },
+    {
+      "evidence_path": "standalone/experiment_summary.csv.evidence.json",
+      "name": "experiment_summary.csv"
+    }
+  ],
+  "sweeps": [
+    {
+      "evidence_path": "sweeps/thesis-fair-baseline-classifier-2p3m-seed7-rtx4090/sweep_evidence.json",
+      "experiment_id": "thesis-fair-baseline-classifier-2p3m-seed7-rtx4090",
+      "source_artifact_count": 3
+    },
+    {
+      "evidence_path": "sweeps/thesis-model-comparison-cosface-a100/sweep_evidence.json",
+      "experiment_id": "thesis-model-comparison-cosface-a100",
+      "source_artifact_count": 2
+    },
+    {
+      "evidence_path": "sweeps/thesis-model-comparison-shufflenet-gpu1/sweep_evidence.json",
+      "experiment_id": "thesis-model-comparison-shufflenet-gpu1",
+      "source_artifact_count": 2
+    },
+    {
+      "evidence_path": "sweeps/thesis-model-comparison-single-gpu0/sweep_evidence.json",
+      "experiment_id": "thesis-model-comparison-single-gpu0",
+      "source_artifact_count": 7
+    },
+    {
+      "evidence_path": "sweeps/thesis-model-comparison-single-gpu1/sweep_evidence.json",
+      "experiment_id": "thesis-model-comparison-single-gpu1",
+      "source_artifact_count": 4
+    },
+    {
+      "evidence_path": "sweeps/thesis-shufflenet-v2-a100/sweep_evidence.json",
+      "experiment_id": "thesis-shufflenet-v2-a100",
+      "source_artifact_count": 9
+    }
+  ]
+}

@@ -1,0 +1,338 @@
+{
+  "schema_version": 2,
+  "status": "failed",
+  "jobs": {
+    "planned": 3,
+    "completed": 0,
+    "failed": 6,
+    "missing": 0
+  },
+  "experiment_id": "thesis-model-comparison-single-gpu1",
+  "started_at": "2026-09-13T11:47:26.707194+00:00",
+  "completed_at": "2026-09-15T02:53:08.153026+00:00",
+  "spec": {
+    "experiment_id": "thesis-model-comparison-single-gpu1",
+    "manifest": "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+    "output_dir": "/root/hccr-deep-learning/experiments",
+    "seeds": [
+      7,
+      17,
+      29
+    ],
+    "base_args": {
+      "model": "efficient_hccr",
+      "device": "cuda",
+      "precision": "bfloat16",
+      "distributed": false,
+      "dataset_backend": "lmdb",
+      "evaluation_policy": "final_test",
+      "reproducibility_mode": "strict",
+      "num_classes": 7186,
+      "image_size": 96,
+      "batch_size": 256,
+      "reference_batch_size": 256,
+      "optimizer_step_policy": "configured_epochs",
+      "learning_rate_scaling": "none",
+      "epochs": 20,
+      "learning_rate": 0.0003,
+      "lr_warmup_ratio": 0.0,
+      "weight_decay": 0.0001,
+      "width": 80,
+      "stage_depths": [
+        2,
+        3,
+        3
+      ],
+      "stem_stride": 2,
+      "classification_head": "cosface",
+      "logit_scale": 32.0,
+      "angular_margin": 0.1,
+      "margin_warmup_ratio": 0.2,
+      "dropout": 0.1,
+      "label_smoothing": 0.0,
+      "scheduler": "cosine",
+      "scheduler_min_lr": 1e-06,
+      "scheduler_patience": 3,
+      "early_stopping_patience": 0,
+      "num_workers": 12,
+      "dataloader_start_method": "spawn",
+      "prefetch_factor": 1,
+      "persistent_workers": true,
+      "worker_timeout_seconds": 120.0,
+      "benchmark_warmup_iterations": 20,
+      "benchmark_iterations": 200,
+      "benchmark_repetitions": 5
+    },
+    "variants": [
+      {
+        "name": "efficient_hccr_multibranch_native320",
+        "args": {
+          "reparameterize_depthwise": true
+        }
+      }
+    ],
+    "profile_devices": [
+      "cuda"
+    ],
+    "full_class_num_classes": 7186,
+    "torchrun_nproc_per_node": null,
+    "required_cuda_device_count": null,
+    "required_cuda_device_name": null
+  },
+  "baseline_variant": "efficient_hccr_multibranch_native320",
+  "records": [
+    {
+      "key": "efficient_hccr_20260822T224249Z_c43e969f/seed-7",
+      "variant": "efficient_hccr_20260822T224249Z_c43e969f",
+      "seed": 7,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_20260822T224249Z_c43e969f/seed-7, found 3"
+    },
+    {
+      "key": "efficient_hccr_20260822T224249Z_c43e969f/seed-17",
+      "variant": "efficient_hccr_20260822T224249Z_c43e969f",
+      "seed": 17,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_20260822T224249Z_c43e969f/seed-17, found 3"
+    },
+    {
+      "key": "efficient_hccr_20260822T224249Z_c43e969f/seed-29",
+      "variant": "efficient_hccr_20260822T224249Z_c43e969f",
+      "seed": 29,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_20260822T224249Z_c43e969f/seed-29, found 2"
+    },
+    {
+      "key": "efficient_hccr_multibranch_native320/seed-7",
+      "variant": "efficient_hccr_multibranch_native320",
+      "seed": 7,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_multibranch_native320/seed-7, found 2"
+    },
+    {
+      "key": "efficient_hccr_multibranch_native320/seed-17",
+      "variant": "efficient_hccr_multibranch_native320",
+      "seed": 17,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_multibranch_native320/seed-17, found 3"
+    },
+    {
+      "key": "efficient_hccr_multibranch_native320/seed-29",
+      "variant": "efficient_hccr_multibranch_native320",
+      "seed": 29,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_multibranch_native320/seed-29, found 2"
+    }
+  ],
+  "variants": {
+    "efficient_hccr_multibranch_native320": {
+      "planned_seeds": [
+        7,
+        17,
+        29
+      ],
+      "completed_seeds": [],
+      "failed_seeds": [
+        7,
+        17,
+        29
+      ],
+      "seed_metrics": {},
+      "metrics": {
+        "top1": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        },
+        "top5": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        },
+        "macro_recall": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        },
+        "head_recall": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        },
+        "mid_recall": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        },
+        "tail_recall": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        },
+        "expected_calibration_error": {
+          "count": 0,
+          "mean": null,
+          "std": null,
+          "sample_std": null,
+          "standard_error": null,
+          "ci95_low": null,
+          "ci95_high": null,
+          "min": null,
+          "max": null,
+          "values": []
+        }
+      },
+      "batch1_p95_ms": {
+        "cpu": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        },
+        "cuda": {
+          "trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_trained_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          },
+          "optimized_full_class_head": {
+            "count": 0,
+            "mean": null,
+            "std": null,
+            "sample_std": null,
+            "standard_error": null,
+            "ci95_low": null,
+            "ci95_high": null,
+            "min": null,
+            "max": null,
+            "values": []
+          }
+        }
+      }
+    }
+  },
+  "comparisons": {}
+}

@@ -1,0 +1,56 @@
+{
+  "status": "failed",
+  "started_at": "2026-09-13T11:47:26.707194+00:00",
+  "updated_at": "2026-09-15T02:53:08.153334+00:00",
+  "active_job": null,
+  "records": [
+    {
+      "key": "efficient_hccr_20260822T224249Z_c43e969f/seed-7",
+      "variant": "efficient_hccr_20260822T224249Z_c43e969f",
+      "seed": 7,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_20260822T224249Z_c43e969f/seed-7, found 3"
+    },
+    {
+      "key": "efficient_hccr_20260822T224249Z_c43e969f/seed-17",
+      "variant": "efficient_hccr_20260822T224249Z_c43e969f",
+      "seed": 17,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_20260822T224249Z_c43e969f/seed-17, found 3"
+    },
+    {
+      "key": "efficient_hccr_20260822T224249Z_c43e969f/seed-29",
+      "variant": "efficient_hccr_20260822T224249Z_c43e969f",
+      "seed": 29,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_20260822T224249Z_c43e969f/seed-29, found 2"
+    },
+    {
+      "key": "efficient_hccr_multibranch_native320/seed-7",
+      "variant": "efficient_hccr_multibranch_native320",
+      "seed": 7,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_multibranch_native320/seed-7, found 2"
+    },
+    {
+      "key": "efficient_hccr_multibranch_native320/seed-17",
+      "variant": "efficient_hccr_multibranch_native320",
+      "seed": 17,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_multibranch_native320/seed-17, found 3"
+    },
+    {
+      "key": "efficient_hccr_multibranch_native320/seed-29",
+      "variant": "efficient_hccr_multibranch_native320",
+      "seed": 29,
+      "status": "failed",
+      "error_type": "RuntimeError",
+      "error": "expected one run directory for efficient_hccr_multibranch_native320/seed-29, found 2"
+    }
+  ]
+}

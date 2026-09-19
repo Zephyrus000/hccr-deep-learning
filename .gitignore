@@ -223,12 +223,6 @@ __marimo__/
 # Documentation
 /docs
 
-# Experiments
-/experiments
-
-# artifacts
-/artifacts
-
 # .claude
 .claude/
 

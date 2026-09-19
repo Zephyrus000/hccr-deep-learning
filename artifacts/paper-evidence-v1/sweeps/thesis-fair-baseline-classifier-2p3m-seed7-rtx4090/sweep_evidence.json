@@ -1,0 +1,2078 @@
+{
+  "artifact_type": "hccr.sweep_evidence",
+  "experiment_id": "thesis-fair-baseline-classifier-2p3m-seed7-rtx4090",
+  "plan": {
+    "jobs": [
+      {
+        "command": [
+          "/root/hccr-deep-learning/.venv/bin/python",
+          "-m",
+          "hccr",
+          "train",
+          "--manifest",
+          "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+          "--output-dir",
+          "/root/hccr-deep-learning/experiments",
+          "--model",
+          "resnet18",
+          "--device",
+          "cuda",
+          "--precision",
+          "bfloat16",
+          "--dataset-backend",
+          "lmdb",
+          "--evaluation-policy",
+          "final_test",
+          "--reproducibility-mode",
+          "strict",
+          "--num-classes",
+          "7186",
+          "--image-size",
+          "96",
+          "--batch-size",
+          "256",
+          "--reference-batch-size",
+          "256",
+          "--optimizer-step-policy",
+          "configured_epochs",
+          "--learning-rate-scaling",
+          "none",
+          "--epochs",
+          "20",
+          "--learning-rate",
+          "0.0003",
+          "--lr-warmup-ratio",
+          "0.0",
+          "--weight-decay",
+          "0.0001",
+          "--classification-head",
+          "cosface",
+          "--embedding-dim",
+          "320",
+          "--logit-scale",
+          "32.0",
+          "--angular-margin",
+          "0.1",
+          "--margin-warmup-ratio",
+          "0.2",
+          "--label-smoothing",
+          "0.0",
+          "--scheduler",
+          "cosine",
+          "--scheduler-min-lr",
+          "1e-06",
+          "--scheduler-patience",
+          "3",
+          "--early-stopping-patience",
+          "0",
+          "--num-workers",
+          "12",
+          "--dataloader-start-method",
+          "auto",
+          "--prefetch-factor",
+          "1",
+          "--persistent-workers",
+          "--worker-timeout-seconds",
+          "120.0",
+          "--benchmark-warmup-iterations",
+          "1",
+          "--benchmark-iterations",
+          "1",
+          "--benchmark-repetitions",
+          "1",
+          "--seed",
+          "7"
+        ],
+        "key": "resnet18_common320_cosface/seed-7",
+        "seed": 7,
+        "train_args": {
+          "angular_margin": 0.1,
+          "batch_size": 256,
+          "benchmark_iterations": 1,
+          "benchmark_repetitions": 1,
+          "benchmark_warmup_iterations": 1,
+          "classification_head": "cosface",
+          "dataloader_start_method": "auto",
+          "dataset_backend": "lmdb",
+          "device": "cuda",
+          "distributed": false,
+          "early_stopping_patience": 0,
+          "embedding_dim": 320,
+          "epochs": 20,
+          "evaluation_policy": "final_test",
+          "image_size": 96,
+          "label_smoothing": 0.0,
+          "learning_rate": 0.0003,
+          "learning_rate_scaling": "none",
+          "logit_scale": 32.0,
+          "lr_warmup_ratio": 0.0,
+          "margin_warmup_ratio": 0.2,
+          "model": "resnet18",
+          "num_classes": 7186,
+          "num_workers": 12,
+          "optimizer_step_policy": "configured_epochs",
+          "persistent_workers": true,
+          "precision": "bfloat16",
+          "prefetch_factor": 1,
+          "reference_batch_size": 256,
+          "reproducibility_mode": "strict",
+          "scheduler": "cosine",
+          "scheduler_min_lr": 1e-06,
+          "scheduler_patience": 3,
+          "seed": 7,
+          "weight_decay": 0.0001,
+          "worker_timeout_seconds": 120.0
+        },
+        "variant": "resnet18_common320_cosface"
+      },
+      {
+        "command": [
+          "/root/hccr-deep-learning/.venv/bin/python",
+          "-m",
+          "hccr",
+          "train",
+          "--manifest",
+          "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+          "--output-dir",
+          "/root/hccr-deep-learning/experiments",
+          "--model",
+          "mobilenet_v3_small",
+          "--device",
+          "cuda",
+          "--precision",
+          "bfloat16",
+          "--dataset-backend",
+          "lmdb",
+          "--evaluation-policy",
+          "final_test",
+          "--reproducibility-mode",
+          "strict",
+          "--num-classes",
+          "7186",
+          "--image-size",
+          "96",
+          "--batch-size",
+          "256",
+          "--reference-batch-size",
+          "256",
+          "--optimizer-step-policy",
+          "configured_epochs",
+          "--learning-rate-scaling",
+          "none",
+          "--epochs",
+          "20",
+          "--learning-rate",
+          "0.0003",
+          "--lr-warmup-ratio",
+          "0.0",
+          "--weight-decay",
+          "0.0001",
+          "--classification-head",
+          "cosface",
+          "--embedding-dim",
+          "320",
+          "--logit-scale",
+          "32.0",
+          "--angular-margin",
+          "0.1",
+          "--margin-warmup-ratio",
+          "0.2",
+          "--label-smoothing",
+          "0.0",
+          "--scheduler",
+          "cosine",
+          "--scheduler-min-lr",
+          "1e-06",
+          "--scheduler-patience",
+          "3",
+          "--early-stopping-patience",
+          "0",
+          "--num-workers",
+          "12",
+          "--dataloader-start-method",
+          "auto",
+          "--prefetch-factor",
+          "1",
+          "--persistent-workers",
+          "--worker-timeout-seconds",
+          "120.0",
+          "--benchmark-warmup-iterations",
+          "1",
+          "--benchmark-iterations",
+          "1",
+          "--benchmark-repetitions",
+          "1",
+          "--seed",
+          "7"
+        ],
+        "key": "mobilenet_v3_small_common320_cosface/seed-7",
+        "seed": 7,
+        "train_args": {
+          "angular_margin": 0.1,
+          "batch_size": 256,
+          "benchmark_iterations": 1,
+          "benchmark_repetitions": 1,
+          "benchmark_warmup_iterations": 1,
+          "classification_head": "cosface",
+          "dataloader_start_method": "auto",
+          "dataset_backend": "lmdb",
+          "device": "cuda",
+          "distributed": false,
+          "early_stopping_patience": 0,
+          "embedding_dim": 320,
+          "epochs": 20,
+          "evaluation_policy": "final_test",
+          "image_size": 96,
+          "label_smoothing": 0.0,
+          "learning_rate": 0.0003,
+          "learning_rate_scaling": "none",
+          "logit_scale": 32.0,
+          "lr_warmup_ratio": 0.0,
+          "margin_warmup_ratio": 0.2,
+          "model": "mobilenet_v3_small",
+          "num_classes": 7186,
+          "num_workers": 12,
+          "optimizer_step_policy": "configured_epochs",
+          "persistent_workers": true,
+          "precision": "bfloat16",
+          "prefetch_factor": 1,
+          "reference_batch_size": 256,
+          "reproducibility_mode": "strict",
+          "scheduler": "cosine",
+          "scheduler_min_lr": 1e-06,
+          "scheduler_patience": 3,
+          "seed": 7,
+          "weight_decay": 0.0001,
+          "worker_timeout_seconds": 120.0
+        },
+        "variant": "mobilenet_v3_small_common320_cosface"
+      },
+      {
+        "command": [
+          "/root/hccr-deep-learning/.venv/bin/python",
+          "-m",
+          "hccr",
+          "train",
+          "--manifest",
+          "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+          "--output-dir",
+          "/root/hccr-deep-learning/experiments",
+          "--model",
+          "efficientnet_b0",
+          "--device",
+          "cuda",
+          "--precision",
+          "bfloat16",
+          "--dataset-backend",
+          "lmdb",
+          "--evaluation-policy",
+          "final_test",
+          "--reproducibility-mode",
+          "strict",
+          "--num-classes",
+          "7186",
+          "--image-size",
+          "96",
+          "--batch-size",
+          "256",
+          "--reference-batch-size",
+          "256",
+          "--optimizer-step-policy",
+          "configured_epochs",
+          "--learning-rate-scaling",
+          "none",
+          "--epochs",
+          "20",
+          "--learning-rate",
+          "0.0003",
+          "--lr-warmup-ratio",
+          "0.0",
+          "--weight-decay",
+          "0.0001",
+          "--classification-head",
+          "cosface",
+          "--embedding-dim",
+          "320",
+          "--logit-scale",
+          "32.0",
+          "--angular-margin",
+          "0.1",
+          "--margin-warmup-ratio",
+          "0.2",
+          "--label-smoothing",
+          "0.0",
+          "--scheduler",
+          "cosine",
+          "--scheduler-min-lr",
+          "1e-06",
+          "--scheduler-patience",
+          "3",
+          "--early-stopping-patience",
+          "0",
+          "--num-workers",
+          "12",
+          "--dataloader-start-method",
+          "auto",
+          "--prefetch-factor",
+          "1",
+          "--persistent-workers",
+          "--worker-timeout-seconds",
+          "120.0",
+          "--benchmark-warmup-iterations",
+          "1",
+          "--benchmark-iterations",
+          "1",
+          "--benchmark-repetitions",
+          "1",
+          "--seed",
+          "7"
+        ],
+        "key": "efficientnet_b0_common320_cosface/seed-7",
+        "seed": 7,
+        "train_args": {
+          "angular_margin": 0.1,
+          "batch_size": 256,
+          "benchmark_iterations": 1,
+          "benchmark_repetitions": 1,
+          "benchmark_warmup_iterations": 1,
+          "classification_head": "cosface",
+          "dataloader_start_method": "auto",
+          "dataset_backend": "lmdb",
+          "device": "cuda",
+          "distributed": false,
+          "early_stopping_patience": 0,
+          "embedding_dim": 320,
+          "epochs": 20,
+          "evaluation_policy": "final_test",
+          "image_size": 96,
+          "label_smoothing": 0.0,
+          "learning_rate": 0.0003,
+          "learning_rate_scaling": "none",
+          "logit_scale": 32.0,
+          "lr_warmup_ratio": 0.0,
+          "margin_warmup_ratio": 0.2,
+          "model": "efficientnet_b0",
+          "num_classes": 7186,
+          "num_workers": 12,
+          "optimizer_step_policy": "configured_epochs",
+          "persistent_workers": true,
+          "precision": "bfloat16",
+          "prefetch_factor": 1,
+          "reference_batch_size": 256,
+          "reproducibility_mode": "strict",
+          "scheduler": "cosine",
+          "scheduler_min_lr": 1e-06,
+          "scheduler_patience": 3,
+          "seed": 7,
+          "weight_decay": 0.0001,
+          "worker_timeout_seconds": 120.0
+        },
+        "variant": "efficientnet_b0_common320_cosface"
+      },
+      {
+        "command": [
+          "/root/hccr-deep-learning/.venv/bin/python",
+          "-m",
+          "hccr",
+          "train",
+          "--manifest",
+          "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+          "--output-dir",
+          "/root/hccr-deep-learning/experiments",
+          "--model",
+          "shufflenet_v2_x1_0",
+          "--device",
+          "cuda",
+          "--precision",
+          "bfloat16",
+          "--dataset-backend",
+          "lmdb",
+          "--evaluation-policy",
+          "final_test",
+          "--reproducibility-mode",
+          "strict",
+          "--num-classes",
+          "7186",
+          "--image-size",
+          "96",
+          "--batch-size",
+          "256",
+          "--reference-batch-size",
+          "256",
+          "--optimizer-step-policy",
+          "configured_epochs",
+          "--learning-rate-scaling",
+          "none",
+          "--epochs",
+          "20",
+          "--learning-rate",
+          "0.0003",
+          "--lr-warmup-ratio",
+          "0.0",
+          "--weight-decay",
+          "0.0001",
+          "--classification-head",
+          "cosface",
+          "--embedding-dim",
+          "320",
+          "--logit-scale",
+          "32.0",
+          "--angular-margin",
+          "0.1",
+          "--margin-warmup-ratio",
+          "0.2",
+          "--label-smoothing",
+          "0.0",
+          "--scheduler",
+          "cosine",
+          "--scheduler-min-lr",
+          "1e-06",
+          "--scheduler-patience",
+          "3",
+          "--early-stopping-patience",
+          "0",
+          "--num-workers",
+          "12",
+          "--dataloader-start-method",
+          "auto",
+          "--prefetch-factor",
+          "1",
+          "--persistent-workers",
+          "--worker-timeout-seconds",
+          "120.0",
+          "--benchmark-warmup-iterations",
+          "1",
+          "--benchmark-iterations",
+          "1",
+          "--benchmark-repetitions",
+          "1",
+          "--seed",
+          "7"
+        ],
+        "key": "shufflenet_v2_x1_0_common320_cosface/seed-7",
+        "seed": 7,
+        "train_args": {
+          "angular_margin": 0.1,
+          "batch_size": 256,
+          "benchmark_iterations": 1,
+          "benchmark_repetitions": 1,
+          "benchmark_warmup_iterations": 1,
+          "classification_head": "cosface",
+          "dataloader_start_method": "auto",
+          "dataset_backend": "lmdb",
+          "device": "cuda",
+          "distributed": false,
+          "early_stopping_patience": 0,
+          "embedding_dim": 320,
+          "epochs": 20,
+          "evaluation_policy": "final_test",
+          "image_size": 96,
+          "label_smoothing": 0.0,
+          "learning_rate": 0.0003,
+          "learning_rate_scaling": "none",
+          "logit_scale": 32.0,
+          "lr_warmup_ratio": 0.0,
+          "margin_warmup_ratio": 0.2,
+          "model": "shufflenet_v2_x1_0",
+          "num_classes": 7186,
+          "num_workers": 12,
+          "optimizer_step_policy": "configured_epochs",
+          "persistent_workers": true,
+          "precision": "bfloat16",
+          "prefetch_factor": 1,
+          "reference_batch_size": 256,
+          "reproducibility_mode": "strict",
+          "scheduler": "cosine",
+          "scheduler_min_lr": 1e-06,
+          "scheduler_patience": 3,
+          "seed": 7,
+          "weight_decay": 0.0001,
+          "worker_timeout_seconds": 120.0
+        },
+        "variant": "shufflenet_v2_x1_0_common320_cosface"
+      }
+    ],
+    "spec": {
+      "base_args": {
+        "angular_margin": 0.1,
+        "batch_size": 256,
+        "benchmark_iterations": 1,
+        "benchmark_repetitions": 1,
+        "benchmark_warmup_iterations": 1,
+        "classification_head": "cosface",
+        "dataloader_start_method": "auto",
+        "dataset_backend": "lmdb",
+        "device": "cuda",
+        "distributed": false,
+        "early_stopping_patience": 0,
+        "embedding_dim": 320,
+        "epochs": 20,
+        "evaluation_policy": "final_test",
+        "image_size": 96,
+        "label_smoothing": 0.0,
+        "learning_rate": 0.0003,
+        "learning_rate_scaling": "none",
+        "logit_scale": 32.0,
+        "lr_warmup_ratio": 0.0,
+        "margin_warmup_ratio": 0.2,
+        "model": "resnet18",
+        "num_classes": 7186,
+        "num_workers": 12,
+        "optimizer_step_policy": "configured_epochs",
+        "persistent_workers": true,
+        "precision": "bfloat16",
+        "prefetch_factor": 1,
+        "reference_batch_size": 256,
+        "reproducibility_mode": "strict",
+        "scheduler": "cosine",
+        "scheduler_min_lr": 1e-06,
+        "scheduler_patience": 3,
+        "weight_decay": 0.0001,
+        "worker_timeout_seconds": 120.0
+      },
+      "experiment_id": "thesis-fair-baseline-classifier-2p3m-seed7-rtx4090",
+      "full_class_num_classes": 7186,
+      "manifest": "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+      "output_dir": "/root/hccr-deep-learning/experiments",
+      "profile_devices": [],
+      "required_cuda_device_count": 1,
+      "required_cuda_device_name": "RTX 4090",
+      "seeds": [
+        7
+      ],
+      "torchrun_nproc_per_node": null,
+      "variants": [
+        {
+          "args": {
+            "model": "resnet18"
+          },
+          "name": "resnet18_common320_cosface"
+        },
+        {
+          "args": {
+            "model": "mobilenet_v3_small"
+          },
+          "name": "mobilenet_v3_small_common320_cosface"
+        },
+        {
+          "args": {
+            "model": "efficientnet_b0"
+          },
+          "name": "efficientnet_b0_common320_cosface"
+        },
+        {
+          "args": {
+            "model": "shufflenet_v2_x1_0"
+          },
+          "name": "shufflenet_v2_x1_0_common320_cosface"
+        }
+      ]
+    }
+  },
+  "schema_version": 1,
+  "source_schemas": {
+    "plan.json": "sweep-plan-v1",
+    "status.json": "sweep-status-v2",
+    "summary.json": "declared-v2"
+  },
+  "sources": {
+    "plan.json": {
+      "bundle_path": "raw/sweeps/thesis-fair-baseline-classifier-2p3m-seed7-rtx4090/plan.json",
+      "detected_schema": "sweep-plan-v1",
+      "sha256": "sha256:f1cbeb614cb81e82cda9c01f6a8f6a144aebf40dd783df0ab56bd47a1c377ddd",
+      "size_bytes": 15238,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\experiments\\sweeps\\thesis-fair-baseline-classifier-2p3m-seed7-rtx4090\\plan.json"
+    },
+    "status.json": {
+      "bundle_path": "raw/sweeps/thesis-fair-baseline-classifier-2p3m-seed7-rtx4090/status.json",
+      "detected_schema": "sweep-status-v2",
+      "sha256": "sha256:93997b0b3dbb580fa5c21eb8c69688d0c4b9d9c68bbbc7292c1091a2fba088d9",
+      "size_bytes": 5046,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\experiments\\sweeps\\thesis-fair-baseline-classifier-2p3m-seed7-rtx4090\\status.json"
+    },
+    "summary.json": {
+      "bundle_path": "raw/sweeps/thesis-fair-baseline-classifier-2p3m-seed7-rtx4090/summary.json",
+      "detected_schema": "declared-v2",
+      "sha256": "sha256:9d2d4db0d49633c517fea544c62da7f8aba113dd85fcc582cf79085e635a5010",
+      "size_bytes": 36628,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\experiments\\sweeps\\thesis-fair-baseline-classifier-2p3m-seed7-rtx4090\\summary.json"
+    }
+  },
+  "status": {
+    "active_job": null,
+    "records": [
+      {
+        "key": "resnet18_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T072746Z-416c5a6b",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T072746Z-416c5a6b",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.97557156875465,
+          "macro_recall": 0.9766878887737643,
+          "mid_recall": 0.9763584859670135,
+          "tail_recall": 0.978792646442642,
+          "top1": 0.9756943075325631,
+          "top5": 0.9956199150927276
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.015486386894290237,
+          "head_recall": 0.9605786149132878,
+          "macro_recall": 0.9697211891631539,
+          "mean_confidence": 0.9813681091204038,
+          "mid_recall": 0.9692491653952539,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9802801631953337,
+          "top1": 0.9658817222261136,
+          "top5": 0.9927814027166387,
+          "unique_confusion_pairs": 17036
+        },
+        "test_status": "completed",
+        "variant": "resnet18_common320_cosface"
+      },
+      {
+        "key": "mobilenet_v3_small_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T092636Z-be72cb91",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T092636Z-be72cb91",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.9496309626312103,
+          "macro_recall": 0.9566189279015679,
+          "mid_recall": 0.9564078040181733,
+          "tail_recall": 0.9642404117420001,
+          "top1": 0.9535934440019452,
+          "top5": 0.9914566986054704
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.014856077627087022,
+          "head_recall": 0.9287896402775566,
+          "macro_recall": 0.9476413793150572,
+          "mean_confidence": 0.9550832457052203,
+          "mid_recall": 0.9470371545937399,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9683062129930029,
+          "top1": 0.9402778600947214,
+          "top5": 0.9875913942574502,
+          "unique_confusion_pairs": 29871
+        },
+        "test_status": "completed",
+        "variant": "mobilenet_v3_small_common320_cosface"
+      },
+      {
+        "key": "efficientnet_b0_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T121954Z-35e13f1e",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T121954Z-35e13f1e",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.9743036952700239,
+          "macro_recall": 0.9743215266921498,
+          "mid_recall": 0.9739499418409003,
+          "tail_recall": 0.9754543712517753,
+          "top1": 0.9738114953406148,
+          "top5": 0.9956823469106107
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.015247009824356287,
+          "head_recall": 0.9594581449397751,
+          "macro_recall": 0.9679067272463481,
+          "mean_confidence": 0.979562165780541,
+          "mid_recall": 0.9674514695618165,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9777213994177086,
+          "top1": 0.9643151559561847,
+          "top5": 0.9930481096138407,
+          "unique_confusion_pairs": 17974
+        },
+        "test_status": "completed",
+        "variant": "efficientnet_b0_common320_cosface"
+      },
+      {
+        "key": "shufflenet_v2_x1_0_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T165011Z-9217c94e",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T165011Z-9217c94e",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.9580144181565388,
+          "macro_recall": 0.9598190997102323,
+          "mid_recall": 0.9597853246217706,
+          "tail_recall": 0.9617251300331994,
+          "top1": 0.9589132920626158,
+          "top5": 0.9926297596046423
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.01249344155526153,
+          "head_recall": 0.9487620904987436,
+          "macro_recall": 0.9571867995081047,
+          "mean_confidence": 0.9662426939677466,
+          "mid_recall": 0.9570775108517424,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9659394505398976,
+          "top1": 0.9537492524124851,
+          "top5": 0.9908417161915333,
+          "unique_confusion_pairs": 24370
+        },
+        "test_status": "completed",
+        "variant": "shufflenet_v2_x1_0_common320_cosface"
+      }
+    ],
+    "started_at": "2026-09-18T07:27:30.378613+00:00",
+    "status": "completed",
+    "updated_at": "2026-09-18T20:05:58.743600+00:00"
+  },
+  "summary": {
+    "baseline_variant": "resnet18_common320_cosface",
+    "comparisons": {
+      "efficientnet_b0_common320_cosface": {
+        "latency_p95_ratio": {
+          "cpu": null,
+          "cuda": null
+        },
+        "macro_recall_mean_delta": -0.002366362081614559,
+        "optimized_latency_p95_ratio": {
+          "cpu": null,
+          "cuda": null
+        },
+        "paired_deltas": {
+          "macro_recall": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.002366362081614559,
+            "mean": -0.002366362081614559,
+            "min": -0.002366362081614559,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.002366362081614559
+            ]
+          },
+          "tail_recall": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.003338275190866713,
+            "mean": -0.003338275190866713,
+            "min": -0.003338275190866713,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.003338275190866713
+            ]
+          },
+          "top1": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.001882812191948302,
+            "mean": -0.001882812191948302,
+            "min": -0.001882812191948302,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.001882812191948302
+            ]
+          }
+        },
+        "tail_recall_mean_delta": -0.003338275190866713,
+        "top1_mean_delta": -0.001882812191948302
+      },
+      "mobilenet_v3_small_common320_cosface": {
+        "latency_p95_ratio": {
+          "cpu": null,
+          "cuda": null
+        },
+        "macro_recall_mean_delta": -0.02006896087219645,
+        "optimized_latency_p95_ratio": {
+          "cpu": null,
+          "cuda": null
+        },
+        "paired_deltas": {
+          "macro_recall": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.02006896087219645,
+            "mean": -0.02006896087219645,
+            "min": -0.02006896087219645,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.02006896087219645
+            ]
+          },
+          "tail_recall": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.01455223470064182,
+            "mean": -0.01455223470064182,
+            "min": -0.01455223470064182,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.01455223470064182
+            ]
+          },
+          "top1": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.02210086353061791,
+            "mean": -0.02210086353061791,
+            "min": -0.02210086353061791,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.02210086353061791
+            ]
+          }
+        },
+        "tail_recall_mean_delta": -0.01455223470064182,
+        "top1_mean_delta": -0.02210086353061791
+      },
+      "shufflenet_v2_x1_0_common320_cosface": {
+        "latency_p95_ratio": {
+          "cpu": null,
+          "cuda": null
+        },
+        "macro_recall_mean_delta": -0.016868789063532064,
+        "optimized_latency_p95_ratio": {
+          "cpu": null,
+          "cuda": null
+        },
+        "paired_deltas": {
+          "macro_recall": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.016868789063532064,
+            "mean": -0.016868789063532064,
+            "min": -0.016868789063532064,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.016868789063532064
+            ]
+          },
+          "tail_recall": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.017067516409442596,
+            "mean": -0.017067516409442596,
+            "min": -0.017067516409442596,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.017067516409442596
+            ]
+          },
+          "top1": {
+            "baseline_only_seeds": [],
+            "candidate_only_seeds": [],
+            "ci95_high": null,
+            "ci95_low": null,
+            "complete": true,
+            "count": 1,
+            "max": -0.01678101546994737,
+            "mean": -0.01678101546994737,
+            "min": -0.01678101546994737,
+            "sample_std": null,
+            "seeds": [
+              7
+            ],
+            "standard_error": null,
+            "std": null,
+            "values": [
+              -0.01678101546994737
+            ]
+          }
+        },
+        "tail_recall_mean_delta": -0.017067516409442596,
+        "top1_mean_delta": -0.01678101546994737
+      }
+    },
+    "completed_at": "2026-09-18T20:05:58.743131+00:00",
+    "experiment_id": "thesis-fair-baseline-classifier-2p3m-seed7-rtx4090",
+    "jobs": {
+      "completed": 4,
+      "failed": 0,
+      "missing": 0,
+      "planned": 4
+    },
+    "records": [
+      {
+        "key": "resnet18_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T072746Z-416c5a6b",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T072746Z-416c5a6b",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.97557156875465,
+          "macro_recall": 0.9766878887737643,
+          "mid_recall": 0.9763584859670135,
+          "tail_recall": 0.978792646442642,
+          "top1": 0.9756943075325631,
+          "top5": 0.9956199150927276
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.015486386894290237,
+          "head_recall": 0.9605786149132878,
+          "macro_recall": 0.9697211891631539,
+          "mean_confidence": 0.9813681091204038,
+          "mid_recall": 0.9692491653952539,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9802801631953337,
+          "top1": 0.9658817222261136,
+          "top5": 0.9927814027166387,
+          "unique_confusion_pairs": 17036
+        },
+        "test_status": "completed",
+        "variant": "resnet18_common320_cosface"
+      },
+      {
+        "key": "mobilenet_v3_small_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T092636Z-be72cb91",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T092636Z-be72cb91",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.9496309626312103,
+          "macro_recall": 0.9566189279015679,
+          "mid_recall": 0.9564078040181733,
+          "tail_recall": 0.9642404117420001,
+          "top1": 0.9535934440019452,
+          "top5": 0.9914566986054704
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.014856077627087022,
+          "head_recall": 0.9287896402775566,
+          "macro_recall": 0.9476413793150572,
+          "mean_confidence": 0.9550832457052203,
+          "mid_recall": 0.9470371545937399,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9683062129930029,
+          "top1": 0.9402778600947214,
+          "top5": 0.9875913942574502,
+          "unique_confusion_pairs": 29871
+        },
+        "test_status": "completed",
+        "variant": "mobilenet_v3_small_common320_cosface"
+      },
+      {
+        "key": "efficientnet_b0_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T121954Z-35e13f1e",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T121954Z-35e13f1e",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.9743036952700239,
+          "macro_recall": 0.9743215266921498,
+          "mid_recall": 0.9739499418409003,
+          "tail_recall": 0.9754543712517753,
+          "top1": 0.9738114953406148,
+          "top5": 0.9956823469106107
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.015247009824356287,
+          "head_recall": 0.9594581449397751,
+          "macro_recall": 0.9679067272463481,
+          "mean_confidence": 0.979562165780541,
+          "mid_recall": 0.9674514695618165,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9777213994177086,
+          "top1": 0.9643151559561847,
+          "top5": 0.9930481096138407,
+          "unique_confusion_pairs": 17974
+        },
+        "test_status": "completed",
+        "variant": "efficientnet_b0_common320_cosface"
+      },
+      {
+        "key": "shufflenet_v2_x1_0_common320_cosface/seed-7",
+        "metrics_schema": "nested-v2",
+        "profiles": {},
+        "run_id": "20260918T165011Z-9217c94e",
+        "run_path": "/root/hccr-deep-learning/experiments/20260918T165011Z-9217c94e",
+        "seed": 7,
+        "selection_metrics": {
+          "head_recall": 0.9580144181565388,
+          "macro_recall": 0.9598190997102323,
+          "mid_recall": 0.9597853246217706,
+          "tail_recall": 0.9617251300331994,
+          "top1": 0.9589132920626158,
+          "top5": 0.9926297596046423
+        },
+        "selection_split": "validation",
+        "status": "completed",
+        "test_metrics": {
+          "classes": 7186,
+          "expected_calibration_error": 0.01249344155526153,
+          "head_recall": 0.9487620904987436,
+          "macro_recall": 0.9571867995081047,
+          "mean_confidence": 0.9662426939677466,
+          "mid_recall": 0.9570775108517424,
+          "recorded_errors": 1000,
+          "samples": 742388,
+          "tail_recall": 0.9659394505398976,
+          "top1": 0.9537492524124851,
+          "top5": 0.9908417161915333,
+          "unique_confusion_pairs": 24370
+        },
+        "test_status": "completed",
+        "variant": "shufflenet_v2_x1_0_common320_cosface"
+      }
+    ],
+    "schema_version": 2,
+    "spec": {
+      "base_args": {
+        "angular_margin": 0.1,
+        "batch_size": 256,
+        "benchmark_iterations": 1,
+        "benchmark_repetitions": 1,
+        "benchmark_warmup_iterations": 1,
+        "classification_head": "cosface",
+        "dataloader_start_method": "auto",
+        "dataset_backend": "lmdb",
+        "device": "cuda",
+        "distributed": false,
+        "early_stopping_patience": 0,
+        "embedding_dim": 320,
+        "epochs": 20,
+        "evaluation_policy": "final_test",
+        "image_size": 96,
+        "label_smoothing": 0.0,
+        "learning_rate": 0.0003,
+        "learning_rate_scaling": "none",
+        "logit_scale": 32.0,
+        "lr_warmup_ratio": 0.0,
+        "margin_warmup_ratio": 0.2,
+        "model": "resnet18",
+        "num_classes": 7186,
+        "num_workers": 12,
+        "optimizer_step_policy": "configured_epochs",
+        "persistent_workers": true,
+        "precision": "bfloat16",
+        "prefetch_factor": 1,
+        "reference_batch_size": 256,
+        "reproducibility_mode": "strict",
+        "scheduler": "cosine",
+        "scheduler_min_lr": 1e-06,
+        "scheduler_patience": 3,
+        "weight_decay": 0.0001,
+        "worker_timeout_seconds": 120.0
+      },
+      "experiment_id": "thesis-fair-baseline-classifier-2p3m-seed7-rtx4090",
+      "full_class_num_classes": 7186,
+      "manifest": "/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv",
+      "output_dir": "/root/hccr-deep-learning/experiments",
+      "profile_devices": [],
+      "required_cuda_device_count": 1,
+      "required_cuda_device_name": "RTX 4090",
+      "seeds": [
+        7
+      ],
+      "torchrun_nproc_per_node": null,
+      "variants": [
+        {
+          "args": {
+            "model": "resnet18"
+          },
+          "name": "resnet18_common320_cosface"
+        },
+        {
+          "args": {
+            "model": "mobilenet_v3_small"
+          },
+          "name": "mobilenet_v3_small_common320_cosface"
+        },
+        {
+          "args": {
+            "model": "efficientnet_b0"
+          },
+          "name": "efficientnet_b0_common320_cosface"
+        },
+        {
+          "args": {
+            "model": "shufflenet_v2_x1_0"
+          },
+          "name": "shufflenet_v2_x1_0_common320_cosface"
+        }
+      ]
+    },
+    "started_at": "2026-09-18T07:27:30.378613+00:00",
+    "status": "completed",
+    "variants": {
+      "efficientnet_b0_common320_cosface": {
+        "batch1_p95_ms": {
+          "cpu": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          },
+          "cuda": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          }
+        },
+        "completed_seeds": [
+          7
+        ],
+        "failed_seeds": [],
+        "metrics": {
+          "expected_calibration_error": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 0,
+            "max": null,
+            "mean": null,
+            "min": null,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": []
+          },
+          "head_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9743036952700239,
+            "mean": 0.9743036952700239,
+            "min": 0.9743036952700239,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9743036952700239
+            ]
+          },
+          "macro_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9743215266921498,
+            "mean": 0.9743215266921498,
+            "min": 0.9743215266921498,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9743215266921498
+            ]
+          },
+          "mid_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9739499418409003,
+            "mean": 0.9739499418409003,
+            "min": 0.9739499418409003,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9739499418409003
+            ]
+          },
+          "tail_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9754543712517753,
+            "mean": 0.9754543712517753,
+            "min": 0.9754543712517753,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9754543712517753
+            ]
+          },
+          "top1": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9738114953406148,
+            "mean": 0.9738114953406148,
+            "min": 0.9738114953406148,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9738114953406148
+            ]
+          },
+          "top5": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9956823469106107,
+            "mean": 0.9956823469106107,
+            "min": 0.9956823469106107,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9956823469106107
+            ]
+          }
+        },
+        "planned_seeds": [
+          7
+        ],
+        "seed_metrics": {
+          "7": {
+            "head_recall": 0.9743036952700239,
+            "macro_recall": 0.9743215266921498,
+            "mid_recall": 0.9739499418409003,
+            "tail_recall": 0.9754543712517753,
+            "top1": 0.9738114953406148,
+            "top5": 0.9956823469106107
+          }
+        }
+      },
+      "mobilenet_v3_small_common320_cosface": {
+        "batch1_p95_ms": {
+          "cpu": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          },
+          "cuda": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          }
+        },
+        "completed_seeds": [
+          7
+        ],
+        "failed_seeds": [],
+        "metrics": {
+          "expected_calibration_error": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 0,
+            "max": null,
+            "mean": null,
+            "min": null,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": []
+          },
+          "head_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9496309626312103,
+            "mean": 0.9496309626312103,
+            "min": 0.9496309626312103,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9496309626312103
+            ]
+          },
+          "macro_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9566189279015679,
+            "mean": 0.9566189279015679,
+            "min": 0.9566189279015679,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9566189279015679
+            ]
+          },
+          "mid_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9564078040181733,
+            "mean": 0.9564078040181733,
+            "min": 0.9564078040181733,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9564078040181733
+            ]
+          },
+          "tail_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9642404117420001,
+            "mean": 0.9642404117420001,
+            "min": 0.9642404117420001,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9642404117420001
+            ]
+          },
+          "top1": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9535934440019452,
+            "mean": 0.9535934440019452,
+            "min": 0.9535934440019452,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9535934440019452
+            ]
+          },
+          "top5": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9914566986054704,
+            "mean": 0.9914566986054704,
+            "min": 0.9914566986054704,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9914566986054704
+            ]
+          }
+        },
+        "planned_seeds": [
+          7
+        ],
+        "seed_metrics": {
+          "7": {
+            "head_recall": 0.9496309626312103,
+            "macro_recall": 0.9566189279015679,
+            "mid_recall": 0.9564078040181733,
+            "tail_recall": 0.9642404117420001,
+            "top1": 0.9535934440019452,
+            "top5": 0.9914566986054704
+          }
+        }
+      },
+      "resnet18_common320_cosface": {
+        "batch1_p95_ms": {
+          "cpu": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          },
+          "cuda": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          }
+        },
+        "completed_seeds": [
+          7
+        ],
+        "failed_seeds": [],
+        "metrics": {
+          "expected_calibration_error": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 0,
+            "max": null,
+            "mean": null,
+            "min": null,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": []
+          },
+          "head_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.97557156875465,
+            "mean": 0.97557156875465,
+            "min": 0.97557156875465,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.97557156875465
+            ]
+          },
+          "macro_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9766878887737643,
+            "mean": 0.9766878887737643,
+            "min": 0.9766878887737643,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9766878887737643
+            ]
+          },
+          "mid_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9763584859670135,
+            "mean": 0.9763584859670135,
+            "min": 0.9763584859670135,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9763584859670135
+            ]
+          },
+          "tail_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.978792646442642,
+            "mean": 0.978792646442642,
+            "min": 0.978792646442642,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.978792646442642
+            ]
+          },
+          "top1": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9756943075325631,
+            "mean": 0.9756943075325631,
+            "min": 0.9756943075325631,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9756943075325631
+            ]
+          },
+          "top5": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9956199150927276,
+            "mean": 0.9956199150927276,
+            "min": 0.9956199150927276,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9956199150927276
+            ]
+          }
+        },
+        "planned_seeds": [
+          7
+        ],
+        "seed_metrics": {
+          "7": {
+            "head_recall": 0.97557156875465,
+            "macro_recall": 0.9766878887737643,
+            "mid_recall": 0.9763584859670135,
+            "tail_recall": 0.978792646442642,
+            "top1": 0.9756943075325631,
+            "top5": 0.9956199150927276
+          }
+        }
+      },
+      "shufflenet_v2_x1_0_common320_cosface": {
+        "batch1_p95_ms": {
+          "cpu": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          },
+          "cuda": {
+            "full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_full_class_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "optimized_trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            },
+            "trained_head": {
+              "ci95_high": null,
+              "ci95_low": null,
+              "count": 0,
+              "max": null,
+              "mean": null,
+              "min": null,
+              "sample_std": null,
+              "standard_error": null,
+              "std": null,
+              "values": []
+            }
+          }
+        },
+        "completed_seeds": [
+          7
+        ],
+        "failed_seeds": [],
+        "metrics": {
+          "expected_calibration_error": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 0,
+            "max": null,
+            "mean": null,
+            "min": null,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": []
+          },
+          "head_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9580144181565388,
+            "mean": 0.9580144181565388,
+            "min": 0.9580144181565388,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9580144181565388
+            ]
+          },
+          "macro_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9598190997102323,
+            "mean": 0.9598190997102323,
+            "min": 0.9598190997102323,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9598190997102323
+            ]
+          },
+          "mid_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9597853246217706,
+            "mean": 0.9597853246217706,
+            "min": 0.9597853246217706,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9597853246217706
+            ]
+          },
+          "tail_recall": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9617251300331994,
+            "mean": 0.9617251300331994,
+            "min": 0.9617251300331994,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9617251300331994
+            ]
+          },
+          "top1": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9589132920626158,
+            "mean": 0.9589132920626158,
+            "min": 0.9589132920626158,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9589132920626158
+            ]
+          },
+          "top5": {
+            "ci95_high": null,
+            "ci95_low": null,
+            "count": 1,
+            "max": 0.9926297596046423,
+            "mean": 0.9926297596046423,
+            "min": 0.9926297596046423,
+            "sample_std": null,
+            "standard_error": null,
+            "std": null,
+            "values": [
+              0.9926297596046423
+            ]
+          }
+        },
+        "planned_seeds": [
+          7
+        ],
+        "seed_metrics": {
+          "7": {
+            "head_recall": 0.9580144181565388,
+            "macro_recall": 0.9598190997102323,
+            "mid_recall": 0.9597853246217706,
+            "tail_recall": 0.9617251300331994,
+            "top1": 0.9589132920626158,
+            "top5": 0.9926297596046423
+          }
+        }
+      }
+    }
+  }
+}

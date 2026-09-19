@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "profiled_at": "2026-09-19T15:40:59.161364+00:00",
+  "run_id": "20260915T184306Z-1564e685",
+  "seed": 17,
+  "source_run_directory": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260915T184306Z-1564e685",
+  "source_checkpoint": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260915T184306Z-1564e685\\checkpoint.pt",
+  "source_checkpoint_sha256": "ab9f7210956a27ce2ef0a95e417ec78d89468ff0f4ea89669d47e04404fe8707",
+  "source_checkpoint_metadata": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260915T184306Z-1564e685\\checkpoint_metadata.json",
+  "model": {
+    "name": "shufflenet_v2_x1_0",
+    "in_channels": 1,
+    "effective_input_channels": 1,
+    "classification_head": "cosface",
+    "num_classes": 7186,
+    "logit_scale": 32.0,
+    "angular_margin": 0.1
+  },
+  "preprocess": {
+    "image_size": 96,
+    "margin": 4
+  },
+  "profiling_device": "cuda"
+}

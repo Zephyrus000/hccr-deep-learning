@@ -1,0 +1,9 @@
+{
+  "drop_threshold": 0.05,
+  "largest_single_epoch_drop": 0.0014030729597939162,
+  "max_drawdown_from_prior_best": 0.001554223676774047,
+  "unstable_epoch_count": 0,
+  "best_top1": 0.9719319690338183,
+  "best_epoch": 17,
+  "final_top1": 0.9719253972635149
+}

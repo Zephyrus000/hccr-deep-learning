@@ -1,0 +1,15 @@
+{
+  "artifact_type": "hccr.standalone_evidence",
+  "name": "cpu_eager_inference_benchmark_v2.csv",
+  "row_count": 15,
+  "schema_version": 1,
+  "sources": {
+    "cpu_eager_inference_benchmark_v2.csv": {
+      "bundle_path": "raw/standalone/cpu_eager_inference_benchmark_v2.csv",
+      "detected_schema": "csv-header-sha256:be570122454d",
+      "sha256": "sha256:75da7b74d2db4df297dfd474c81d853192b4a156170469d49e991a3462880dc3",
+      "size_bytes": 4240,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\experiments\\cpu_eager_inference_benchmark_v2.csv"
+    }
+  }
+}

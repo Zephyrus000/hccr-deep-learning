@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "profiled_at": "2026-09-19T15:35:06.515281+00:00",
+  "run_id": "20260913T225308Z-d5c6a2be",
+  "seed": 17,
+  "source_run_directory": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260913T225308Z-d5c6a2be",
+  "source_checkpoint": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260913T225308Z-d5c6a2be\\checkpoint.pt",
+  "source_checkpoint_sha256": "c99b925dc8eaff5484bd172d63c46355a7ac6e950dc09ccada779f8a21b79ef1",
+  "source_checkpoint_metadata": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260913T225308Z-d5c6a2be\\checkpoint_metadata.json",
+  "model": {
+    "name": "mobilenet_v3_small",
+    "in_channels": 1,
+    "effective_input_channels": 1,
+    "classification_head": "cosface",
+    "num_classes": 7186,
+    "logit_scale": 32.0,
+    "angular_margin": 0.1
+  },
+  "preprocess": {
+    "image_size": 96,
+    "margin": 4
+  },
+  "profiling_device": "cuda"
+}

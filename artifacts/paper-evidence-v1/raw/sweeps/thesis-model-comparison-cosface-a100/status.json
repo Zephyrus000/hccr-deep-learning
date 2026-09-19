@@ -1,0 +1,24 @@
+{
+  "status": "training",
+  "started_at": "2026-09-13T11:09:38.253451+00:00",
+  "updated_at": "2026-09-13T11:43:17.997300+00:00",
+  "active_job": "resnet18_cosface/seed-17",
+  "records": [
+    {
+      "key": "resnet18_cosface/seed-7",
+      "variant": "resnet18_cosface",
+      "seed": 7,
+      "status": "failed",
+      "error_type": "CalledProcessError",
+      "error": "Command '('/root/hccr-deep-learning/.venv/bin/python', '-m', 'torch.distributed.run', '--standalone', '--nproc-per-node=2', '-m', 'hccr', 'train', '--manifest', '/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv', '--output-dir', '/root/hccr-deep-learning/experiments', '--model', 'resnet18', '--device', 'cuda', '--precision', 'bfloat16', '--distributed', '--dataset-backend', 'lmdb', '--evaluation-policy', 'final_test', '--reproducibility-mode', 'strict', '--num-classes', '7186', '--image-size', '96', '--batch-size', '256', '--reference-batch-size', '256', '--optimizer-step-policy', 'configured_epochs', '--learning-rate-scaling', 'none', '--epochs', '20', '--learning-rate', '0.0003', '--lr-warmup-ratio', '0.0', '--weight-decay', '0.0001', '--width', '80', '--stage-depths', '2', '3', '3', '--stem-stride', '2', '--classification-head', 'cosface', '--logit-scale', '32.0', '--angular-margin', '0.1', '--margin-warmup-ratio', '0.2', '--dropout', '0.1', '--label-smoothing', '0.0', '--scheduler', 'cosine', '--scheduler-min-lr', '1e-06', '--scheduler-patience', '3', '--early-stopping-patience', '0', '--num-workers', '12', '--dataloader-start-method', 'auto', '--prefetch-factor', '1', '--persistent-workers', '--worker-timeout-seconds', '120.0', '--benchmark-warmup-iterations', '20', '--benchmark-iterations', '200', '--benchmark-repetitions', '5', '--seed', '7')' returned non-zero exit status 1."
+    },
+    {
+      "key": "resnet18_cosface/seed-7",
+      "variant": "resnet18_cosface",
+      "seed": 7,
+      "status": "failed",
+      "error_type": "CalledProcessError",
+      "error": "Command '('/root/hccr-deep-learning/.venv/bin/python', '-m', 'torch.distributed.run', '--standalone', '--nproc-per-node=2', '-m', 'hccr', 'train', '--manifest', '/root/hccr-deep-learning/data/processed/casia_hwdb/manifest.csv', '--output-dir', '/root/hccr-deep-learning/experiments', '--model', 'resnet18', '--device', 'cuda', '--precision', 'bfloat16', '--distributed', '--dataset-backend', 'lmdb', '--evaluation-policy', 'final_test', '--reproducibility-mode', 'strict', '--num-classes', '7186', '--image-size', '96', '--batch-size', '256', '--reference-batch-size', '256', '--optimizer-step-policy', 'configured_epochs', '--learning-rate-scaling', 'none', '--epochs', '20', '--learning-rate', '0.0003', '--lr-warmup-ratio', '0.0', '--weight-decay', '0.0001', '--width', '80', '--stage-depths', '2', '3', '3', '--stem-stride', '2', '--classification-head', 'cosface', '--logit-scale', '32.0', '--angular-margin', '0.1', '--margin-warmup-ratio', '0.2', '--dropout', '0.1', '--label-smoothing', '0.0', '--scheduler', 'cosine', '--scheduler-min-lr', '1e-06', '--scheduler-patience', '3', '--early-stopping-patience', '0', '--num-workers', '8', '--dataloader-start-method', 'auto', '--prefetch-factor', '1', '--persistent-workers', '--worker-timeout-seconds', '120.0', '--benchmark-warmup-iterations', '20', '--benchmark-iterations', '200', '--benchmark-repetitions', '5', '--seed', '7')' returned non-zero exit status 1."
+    }
+  ]
+}

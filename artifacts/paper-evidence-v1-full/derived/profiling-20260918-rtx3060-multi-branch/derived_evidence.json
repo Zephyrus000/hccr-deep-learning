@@ -1,0 +1,1585 @@
+{
+  "artifact_type": "hccr.derived_evidence_collection",
+  "collection_id": "profiling-20260918-rtx3060-multi-branch",
+  "profiles": [
+    {
+      "device": "cuda",
+      "provenance": {
+        "model": {
+          "angular_margin": 0.1,
+          "backbone_output_channels": 320,
+          "classification_head": "cosface",
+          "dropout": 0.1,
+          "effective_input_channels": 1,
+          "embedding_dim": 320,
+          "in_channels": 1,
+          "logit_scale": 32.0,
+          "name": "efficient_hccr",
+          "num_classes": 7186,
+          "reparameterize_depthwise": true,
+          "stage_depths": [
+            2,
+            3,
+            3
+          ],
+          "stem_stride": 2,
+          "width": 80
+        },
+        "preprocess": {
+          "image_size": 96,
+          "margin": 4
+        },
+        "profiled_at": "2026-09-17T19:47:25.064355+00:00",
+        "profiling_device": "cuda",
+        "run_id": "20260914T040219Z-d03507d1",
+        "schema_version": 1,
+        "seed": 7,
+        "source_checkpoint": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T040219Z-d03507d1\\checkpoint.pt",
+        "source_checkpoint_metadata": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T040219Z-d03507d1\\checkpoint_metadata.json",
+        "source_checkpoint_sha256": "e8b0f3635a75823dc4d5c51ffb9ca09b96f8794b08800d2018c7ca1b7fce4c6c",
+        "source_run_directory": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T040219Z-d03507d1"
+      },
+      "resources": {
+        "complexity": {
+          "flops": {
+            "availability": "measured",
+            "backbone": 283795200,
+            "classifier": 4621559,
+            "coverage": {
+              "complete": true,
+              "counted_operator_types": [
+                "aten.add",
+                "aten.clamp",
+                "aten.clamp_min",
+                "aten.convolution",
+                "aten.cudnn_batch_norm",
+                "aten.div",
+                "aten.linalg_vector_norm",
+                "aten.mean",
+                "aten.mm",
+                "aten.mul",
+                "aten.silu_"
+              ],
+              "estimator": "torch_dispatch_operator_formulas_v1",
+              "flops_by_operator": {
+                "aten.add": 2211840,
+                "aten.clamp": 14372,
+                "aten.clamp_min": 1,
+                "aten.convolution": 260674560,
+                "aten.cudnn_batch_norm": 12453120,
+                "aten.div": 320,
+                "aten.linalg_vector_norm": 640,
+                "aten.mean": 46080,
+                "aten.mm": 4599040,
+                "aten.mul": 7186,
+                "aten.silu_": 8409600
+              },
+              "note": "Complete means every operator observed during the traced eval forward is either counted or classified as zero arithmetic FLOPs. Data movement and kernel efficiency are represented by measured latency, not FLOPs.",
+              "unsupported_operator_types": [],
+              "zero_arithmetic_flop_operator_types": [
+                "aten.clone",
+                "aten.expand",
+                "aten.t",
+                "aten.view"
+              ]
+            },
+            "embedding_projection": 0,
+            "head": 4621559,
+            "total": 288416759
+          },
+          "full_class": {
+            "flops": 288416759,
+            "macs": 132636800,
+            "num_classes": 7186,
+            "parameter_count": 2728960
+          },
+          "macs": {
+            "availability": "measured",
+            "backbone": 130337280,
+            "classifier": 2299520,
+            "coverage": {
+              "complete": false,
+              "counted_operator_types": [
+                "AngularMarginClassifier",
+                "Conv2d"
+              ],
+              "estimator": "forward_hooks_conv_linear_and_fixed_filters",
+              "note": "Unsupported operators are excluded from estimated MACs; measured latency remains authoritative.",
+              "unsupported_operator_types": [
+                "AdaptiveAvgPool2d",
+                "BatchNorm2d",
+                "Dropout",
+                "Identity",
+                "SiLU"
+              ]
+            },
+            "embedding_projection": 0,
+            "head": 2299520,
+            "total": 132636800
+          },
+          "protocol": {
+            "activation_flops_per_element": {
+              "hardsigmoid": 4,
+              "hardswish": 5,
+              "relu": 1,
+              "sigmoid": 4,
+              "silu": 5
+            },
+            "batch_norm_inference_formula": "4 FLOPs per tensor element plus 2 FLOPs per channel",
+            "bias_additions_counted": true,
+            "cached_angular_weight_normalization": "excluded from per-sample inference",
+            "data_movement": "view, transpose, split, concatenate and copy operations contribute zero arithmetic FLOPs; their cost is captured by latency",
+            "estimator": "torch_dispatch_operator_formulas_v1",
+            "flops_per_mac": 2,
+            "input_shape": [
+              1,
+              1,
+              96,
+              96
+            ],
+            "model_mode": "eval",
+            "multiply_and_add_counted_separately": true,
+            "pooling": "reduction additions/divisions or comparisons are counted"
+          }
+        },
+        "device": "cuda",
+        "device_metadata": {
+          "cuda_version": "13.0",
+          "device": "cuda",
+          "device_name": "NVIDIA GeForce RTX 3060",
+          "dtype": "float32",
+          "inter_op_threads": 10,
+          "intra_op_threads": 10
+        },
+        "latency": {
+          "eager": [
+            {
+              "batch_size": 1,
+              "latency_mean_ms": 7.05870599966147,
+              "latency_p50_ms": 7.115100001101382,
+              "latency_p95_ms": 8.21550001273863,
+              "latency_p99_ms": 9.183200003462844,
+              "peak_cuda_memory_mib": 36.24169921875,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 8.734688999757054,
+                  "latency_p50_ms": 8.51689999399241,
+                  "latency_p95_ms": 10.441399994306266,
+                  "latency_p99_ms": 13.63219998893328,
+                  "samples_per_second": 114.48604524188714
+                },
+                {
+                  "latency_mean_ms": 7.7915934990596725,
+                  "latency_p50_ms": 7.696299988310784,
+                  "latency_p95_ms": 8.76879999123048,
+                  "latency_p99_ms": 9.304999999585561,
+                  "samples_per_second": 128.34345119784354
+                },
+                {
+                  "latency_mean_ms": 6.872641000372823,
+                  "latency_p50_ms": 7.03090000024531,
+                  "latency_p95_ms": 8.106499997666106,
+                  "latency_p99_ms": 8.978800004115328,
+                  "samples_per_second": 145.50447199930164
+                },
+                {
+                  "latency_mean_ms": 6.977859999387874,
+                  "latency_p50_ms": 7.025599988992326,
+                  "latency_p95_ms": 8.114299998851493,
+                  "latency_p99_ms": 9.055899994564243,
+                  "samples_per_second": 143.31041323381726
+                },
+                {
+                  "latency_mean_ms": 7.05870599966147,
+                  "latency_p50_ms": 7.115100001101382,
+                  "latency_p95_ms": 8.21550001273863,
+                  "latency_p99_ms": 9.183200003462844,
+                  "samples_per_second": 141.66902546273485
+                }
+              ],
+              "samples_per_second": 141.66902546273485
+            },
+            {
+              "batch_size": 8,
+              "latency_mean_ms": 7.120441499209846,
+              "latency_p50_ms": 7.041999997454695,
+              "latency_p95_ms": 8.544999989680946,
+              "latency_p99_ms": 9.325799997895956,
+              "peak_cuda_memory_mib": 72.68798828125,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 7.120441499209846,
+                  "latency_p50_ms": 7.0577000005869195,
+                  "latency_p95_ms": 8.313700003782287,
+                  "latency_p99_ms": 9.209999989252537,
+                  "samples_per_second": 1123.5258376728125
+                },
+                {
+                  "latency_mean_ms": 7.031496000709012,
+                  "latency_p50_ms": 6.90720000420697,
+                  "latency_p95_ms": 8.544999989680946,
+                  "latency_p99_ms": 9.54009999986738,
+                  "samples_per_second": 1137.737972003871
+                },
+                {
+                  "latency_mean_ms": 6.608109499866259,
+                  "latency_p50_ms": 6.758800009265542,
+                  "latency_p95_ms": 8.101700004772283,
+                  "latency_p99_ms": 9.202700006426312,
+                  "samples_per_second": 1210.633691854215
+                },
+                {
+                  "latency_mean_ms": 7.125860499945702,
+                  "latency_p50_ms": 7.041999997454695,
+                  "latency_p95_ms": 8.588500000769272,
+                  "latency_p99_ms": 9.325799997895956,
+                  "samples_per_second": 1122.671430357212
+                },
+                {
+                  "latency_mean_ms": 7.996660000644624,
+                  "latency_p50_ms": 7.698900008108467,
+                  "latency_p95_ms": 9.558899997500703,
+                  "latency_p99_ms": 15.414100009365939,
+                  "samples_per_second": 1000.4176742984079
+                }
+              ],
+              "samples_per_second": 1123.5258376728125
+            },
+            {
+              "batch_size": 32,
+              "latency_mean_ms": 14.049515999649884,
+              "latency_p50_ms": 14.17070000024978,
+              "latency_p95_ms": 15.232100005960092,
+              "latency_p99_ms": 15.90290000604,
+              "peak_cuda_memory_mib": 208.53173828125,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 14.412953000501147,
+                  "latency_p50_ms": 14.389999996637926,
+                  "latency_p95_ms": 16.066700001829304,
+                  "latency_p99_ms": 16.374899991205893,
+                  "samples_per_second": 2220.225098832095
+                },
+                {
+                  "latency_mean_ms": 14.029827000194928,
+                  "latency_p50_ms": 13.956599999801256,
+                  "latency_p95_ms": 15.829199997824617,
+                  "latency_p99_ms": 16.623000003164634,
+                  "samples_per_second": 2280.854924266379
+                },
+                {
+                  "latency_mean_ms": 14.177362500267918,
+                  "latency_p50_ms": 14.321200011181645,
+                  "latency_p95_ms": 15.232100005960092,
+                  "latency_p99_ms": 15.90290000604,
+                  "samples_per_second": 2257.119404218893
+                },
+                {
+                  "latency_mean_ms": 14.049515999649884,
+                  "latency_p50_ms": 14.17070000024978,
+                  "latency_p95_ms": 15.043700012029149,
+                  "latency_p99_ms": 15.75770000636112,
+                  "samples_per_second": 2277.658532920098
+                },
+                {
+                  "latency_mean_ms": 13.981756999710342,
+                  "latency_p50_ms": 14.009999998961575,
+                  "latency_p95_ms": 14.881600000080653,
+                  "latency_p99_ms": 15.226000003167428,
+                  "samples_per_second": 2288.6966209370494
+                }
+              ],
+              "samples_per_second": 2277.658532920098
+            }
+          ],
+          "end_to_end_batch1": {
+            "availability": "not_measured",
+            "value": null
+          },
+          "optimized": [
+            {
+              "batch_size": 1,
+              "latency_mean_ms": 3.0628154993610224,
+              "latency_p50_ms": 2.9943999979877844,
+              "latency_p95_ms": 3.7733999924967065,
+              "latency_p99_ms": 4.121599995414726,
+              "peak_cuda_memory_mib": 55.3671875,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 3.5267190000013215,
+                  "latency_p50_ms": 3.459700004896149,
+                  "latency_p95_ms": 4.504099997575395,
+                  "latency_p99_ms": 5.8642000076361,
+                  "samples_per_second": 283.549667552086
+                },
+                {
+                  "latency_mean_ms": 3.092150499651325,
+                  "latency_p50_ms": 2.9943999979877844,
+                  "latency_p95_ms": 3.7505999935092404,
+                  "latency_p99_ms": 4.121599995414726,
+                  "samples_per_second": 323.3995240893874
+                },
+                {
+                  "latency_mean_ms": 2.9120020003028912,
+                  "latency_p50_ms": 2.8396000125212595,
+                  "latency_p95_ms": 3.5410000127740204,
+                  "latency_p99_ms": 4.009700001915917,
+                  "samples_per_second": 343.4063575148593
+                },
+                {
+                  "latency_mean_ms": 3.0628154993610224,
+                  "latency_p50_ms": 3.0529000068781897,
+                  "latency_p95_ms": 3.8032000011298805,
+                  "latency_p99_ms": 4.068900001584552,
+                  "samples_per_second": 326.49697646124105
+                },
+                {
+                  "latency_mean_ms": 3.0298734996904386,
+                  "latency_p50_ms": 2.9203000012785196,
+                  "latency_p95_ms": 3.7733999924967065,
+                  "latency_p99_ms": 4.205400007776916,
+                  "samples_per_second": 330.0467825149036
+                }
+              ],
+              "samples_per_second": 326.49697646124105
+            },
+            {
+              "batch_size": 8,
+              "latency_mean_ms": 3.1583330003195442,
+              "latency_p50_ms": 3.0981000018073246,
+              "latency_p95_ms": 3.9257000025827438,
+              "latency_p99_ms": 4.92790000862442,
+              "peak_cuda_memory_mib": 69.3134765625,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 2.9074719992058817,
+                  "latency_p50_ms": 2.8215999918757007,
+                  "latency_p95_ms": 3.6186999932397157,
+                  "latency_p99_ms": 4.05069999396801,
+                  "samples_per_second": 2751.5312278794227
+                },
+                {
+                  "latency_mean_ms": 3.3575890006613918,
+                  "latency_p50_ms": 3.2959999953163788,
+                  "latency_p95_ms": 4.379099991638213,
+                  "latency_p99_ms": 4.97219999670051,
+                  "samples_per_second": 2382.662082352583
+                },
+                {
+                  "latency_mean_ms": 3.4708509996562498,
+                  "latency_p50_ms": 3.3694999874569476,
+                  "latency_p95_ms": 4.229099999065511,
+                  "latency_p99_ms": 5.456200000480749,
+                  "samples_per_second": 2304.9102369396765
+                },
+                {
+                  "latency_mean_ms": 3.1583330003195442,
+                  "latency_p50_ms": 3.0981000018073246,
+                  "latency_p95_ms": 3.9257000025827438,
+                  "latency_p99_ms": 4.92790000862442,
+                  "samples_per_second": 2532.981797419905
+                },
+                {
+                  "latency_mean_ms": 2.7848595004616072,
+                  "latency_p50_ms": 2.7814999921247363,
+                  "latency_p95_ms": 3.604300000006333,
+                  "latency_p99_ms": 4.003900001407601,
+                  "samples_per_second": 2872.676341005337
+                }
+              ],
+              "samples_per_second": 2532.981797419905
+            },
+            {
+              "batch_size": 32,
+              "latency_mean_ms": 6.811619499931112,
+              "latency_p50_ms": 6.801499999710359,
+              "latency_p95_ms": 7.441699999617413,
+              "latency_p99_ms": 7.997599997906946,
+              "peak_cuda_memory_mib": 137.6572265625,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 7.029424500069581,
+                  "latency_p50_ms": 7.015800001681782,
+                  "latency_p95_ms": 7.840899997972883,
+                  "latency_p99_ms": 8.000400004675612,
+                  "samples_per_second": 4552.293007725348
+                },
+                {
+                  "latency_mean_ms": 6.633836499822792,
+                  "latency_p50_ms": 6.657200006884523,
+                  "latency_p95_ms": 7.133899998734705,
+                  "latency_p99_ms": 7.503299988457002,
+                  "samples_per_second": 4823.7547007459125
+                },
+                {
+                  "latency_mean_ms": 6.832711999450112,
+                  "latency_p50_ms": 6.801499999710359,
+                  "latency_p95_ms": 7.5597999966703355,
+                  "latency_p99_ms": 7.930299994768575,
+                  "samples_per_second": 4683.352672053984
+                },
+                {
+                  "latency_mean_ms": 6.792624999943655,
+                  "latency_p50_ms": 6.766400008928031,
+                  "latency_p95_ms": 7.441699999617413,
+                  "latency_p99_ms": 8.267099998192862,
+                  "samples_per_second": 4710.991700596668
+                },
+                {
+                  "latency_mean_ms": 6.811619499931112,
+                  "latency_p50_ms": 6.803700001910329,
+                  "latency_p95_ms": 7.405199998174794,
+                  "latency_p99_ms": 7.997599997906946,
+                  "samples_per_second": 4697.854893439604
+                }
+              ],
+              "samples_per_second": 4697.854893439604
+            }
+          ],
+          "protocol": {
+            "aggregation": "median_of_repetition_summaries",
+            "execution_context": "torch.inference_mode",
+            "model_mode": "eval",
+            "repetitions": 5,
+            "timed_iterations": 200,
+            "warmup_iterations": 20
+          }
+        },
+        "memory": {
+          "peak_inference_cuda_memory_mib": 36.24169921875
+        },
+        "model": {
+          "backbone_output_channels": 320,
+          "classification_head": "cosface",
+          "embedding_dim": 320,
+          "name": "efficient_hccr"
+        },
+        "parameters": {
+          "backbone": 429440,
+          "classifier": 2299520,
+          "embedding_projection": 0,
+          "head": 2299520,
+          "total": 2728960,
+          "trainable": 2728960
+        },
+        "source_variant": "resource-profile-v2"
+      },
+      "run_id": "20260914T040219Z-d03507d1",
+      "source": "runs/20260914T040219Z-d03507d1/cuda/resource_profile.json"
+    },
+    {
+      "device": "cuda",
+      "provenance": {
+        "model": {
+          "angular_margin": 0.1,
+          "backbone_output_channels": 320,
+          "classification_head": "cosface",
+          "dropout": 0.1,
+          "effective_input_channels": 1,
+          "embedding_dim": 320,
+          "in_channels": 1,
+          "logit_scale": 32.0,
+          "name": "efficient_hccr",
+          "num_classes": 7186,
+          "reparameterize_depthwise": true,
+          "stage_depths": [
+            2,
+            3,
+            3
+          ],
+          "stem_stride": 2,
+          "width": 80
+        },
+        "preprocess": {
+          "image_size": 96,
+          "margin": 4
+        },
+        "profiled_at": "2026-09-17T19:48:10.657191+00:00",
+        "profiling_device": "cuda",
+        "run_id": "20260914T114052Z-00692c42",
+        "schema_version": 1,
+        "seed": 17,
+        "source_checkpoint": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T114052Z-00692c42\\checkpoint.pt",
+        "source_checkpoint_metadata": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T114052Z-00692c42\\checkpoint_metadata.json",
+        "source_checkpoint_sha256": "902788a90459513f8ac19917e1fa32fce231aa64dd07171a5446b5a6f1827266",
+        "source_run_directory": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T114052Z-00692c42"
+      },
+      "resources": {
+        "complexity": {
+          "flops": {
+            "availability": "measured",
+            "backbone": 283795200,
+            "classifier": 4621559,
+            "coverage": {
+              "complete": true,
+              "counted_operator_types": [
+                "aten.add",
+                "aten.clamp",
+                "aten.clamp_min",
+                "aten.convolution",
+                "aten.cudnn_batch_norm",
+                "aten.div",
+                "aten.linalg_vector_norm",
+                "aten.mean",
+                "aten.mm",
+                "aten.mul",
+                "aten.silu_"
+              ],
+              "estimator": "torch_dispatch_operator_formulas_v1",
+              "flops_by_operator": {
+                "aten.add": 2211840,
+                "aten.clamp": 14372,
+                "aten.clamp_min": 1,
+                "aten.convolution": 260674560,
+                "aten.cudnn_batch_norm": 12453120,
+                "aten.div": 320,
+                "aten.linalg_vector_norm": 640,
+                "aten.mean": 46080,
+                "aten.mm": 4599040,
+                "aten.mul": 7186,
+                "aten.silu_": 8409600
+              },
+              "note": "Complete means every operator observed during the traced eval forward is either counted or classified as zero arithmetic FLOPs. Data movement and kernel efficiency are represented by measured latency, not FLOPs.",
+              "unsupported_operator_types": [],
+              "zero_arithmetic_flop_operator_types": [
+                "aten.clone",
+                "aten.expand",
+                "aten.t",
+                "aten.view"
+              ]
+            },
+            "embedding_projection": 0,
+            "head": 4621559,
+            "total": 288416759
+          },
+          "full_class": {
+            "flops": 288416759,
+            "macs": 132636800,
+            "num_classes": 7186,
+            "parameter_count": 2728960
+          },
+          "macs": {
+            "availability": "measured",
+            "backbone": 130337280,
+            "classifier": 2299520,
+            "coverage": {
+              "complete": false,
+              "counted_operator_types": [
+                "AngularMarginClassifier",
+                "Conv2d"
+              ],
+              "estimator": "forward_hooks_conv_linear_and_fixed_filters",
+              "note": "Unsupported operators are excluded from estimated MACs; measured latency remains authoritative.",
+              "unsupported_operator_types": [
+                "AdaptiveAvgPool2d",
+                "BatchNorm2d",
+                "Dropout",
+                "Identity",
+                "SiLU"
+              ]
+            },
+            "embedding_projection": 0,
+            "head": 2299520,
+            "total": 132636800
+          },
+          "protocol": {
+            "activation_flops_per_element": {
+              "hardsigmoid": 4,
+              "hardswish": 5,
+              "relu": 1,
+              "sigmoid": 4,
+              "silu": 5
+            },
+            "batch_norm_inference_formula": "4 FLOPs per tensor element plus 2 FLOPs per channel",
+            "bias_additions_counted": true,
+            "cached_angular_weight_normalization": "excluded from per-sample inference",
+            "data_movement": "view, transpose, split, concatenate and copy operations contribute zero arithmetic FLOPs; their cost is captured by latency",
+            "estimator": "torch_dispatch_operator_formulas_v1",
+            "flops_per_mac": 2,
+            "input_shape": [
+              1,
+              1,
+              96,
+              96
+            ],
+            "model_mode": "eval",
+            "multiply_and_add_counted_separately": true,
+            "pooling": "reduction additions/divisions or comparisons are counted"
+          }
+        },
+        "device": "cuda",
+        "device_metadata": {
+          "cuda_version": "13.0",
+          "device": "cuda",
+          "device_name": "NVIDIA GeForce RTX 3060",
+          "dtype": "float32",
+          "inter_op_threads": 10,
+          "intra_op_threads": 10
+        },
+        "latency": {
+          "eager": [
+            {
+              "batch_size": 1,
+              "latency_mean_ms": 7.1344214999407995,
+              "latency_p50_ms": 7.229199996800162,
+              "latency_p95_ms": 9.021000005304813,
+              "latency_p99_ms": 10.140300000784919,
+              "peak_cuda_memory_mib": 36.24169921875,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 6.572948999964865,
+                  "latency_p50_ms": 6.847200012998655,
+                  "latency_p95_ms": 8.567200013203546,
+                  "latency_p99_ms": 9.987800003727898,
+                  "samples_per_second": 152.13871277646388
+                },
+                {
+                  "latency_mean_ms": 6.9525570001860615,
+                  "latency_p50_ms": 7.229199996800162,
+                  "latency_p95_ms": 9.021000005304813,
+                  "latency_p99_ms": 10.014300001785159,
+                  "samples_per_second": 143.83197433307464
+                },
+                {
+                  "latency_mean_ms": 7.1344214999407995,
+                  "latency_p50_ms": 7.05759999982547,
+                  "latency_p95_ms": 8.823199998005293,
+                  "latency_p99_ms": 10.140300000784919,
+                  "samples_per_second": 140.16553409527287
+                },
+                {
+                  "latency_mean_ms": 7.539061500574462,
+                  "latency_p50_ms": 7.580499994219281,
+                  "latency_p95_ms": 9.765700000571087,
+                  "latency_p99_ms": 11.232100005145185,
+                  "samples_per_second": 132.64250463055672
+                },
+                {
+                  "latency_mean_ms": 7.993534000124782,
+                  "latency_p50_ms": 7.887800005846657,
+                  "latency_p95_ms": 10.156100004678592,
+                  "latency_p99_ms": 11.757500004023314,
+                  "samples_per_second": 125.10111297260882
+                }
+              ],
+              "samples_per_second": 140.16553409527287
+            },
+            {
+              "batch_size": 8,
+              "latency_mean_ms": 6.862531999577186,
+              "latency_p50_ms": 7.027900006505661,
+              "latency_p95_ms": 8.985099993878976,
+              "latency_p99_ms": 11.213099991437048,
+              "peak_cuda_memory_mib": 72.68798828125,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 7.181756499412586,
+                  "latency_p50_ms": 7.048799991025589,
+                  "latency_p95_ms": 8.985099993878976,
+                  "latency_p99_ms": 10.221100004855543,
+                  "samples_per_second": 1113.9336178627527
+                },
+                {
+                  "latency_mean_ms": 6.862531999577186,
+                  "latency_p50_ms": 7.027900006505661,
+                  "latency_p95_ms": 9.969999999157153,
+                  "latency_p99_ms": 11.213099991437048,
+                  "samples_per_second": 1165.7504840039937
+                },
+                {
+                  "latency_mean_ms": 6.174254999205004,
+                  "latency_p50_ms": 6.3559999980498105,
+                  "latency_p95_ms": 8.922499997424893,
+                  "latency_p99_ms": 11.393799999495968,
+                  "samples_per_second": 1295.7028825388777
+                },
+                {
+                  "latency_mean_ms": 7.14053649950074,
+                  "latency_p50_ms": 7.1017000009305775,
+                  "latency_p95_ms": 9.667899998021312,
+                  "latency_p99_ms": 12.101600004825741,
+                  "samples_per_second": 1120.3639951366893
+                },
+                {
+                  "latency_mean_ms": 5.935609500447754,
+                  "latency_p50_ms": 6.275899999309331,
+                  "latency_p95_ms": 8.415899996180087,
+                  "latency_p99_ms": 10.75130001117941,
+                  "samples_per_second": 1347.7975596939991
+                }
+              ],
+              "samples_per_second": 1165.7504840039937
+            },
+            {
+              "batch_size": 32,
+              "latency_mean_ms": 14.233312000069418,
+              "latency_p50_ms": 14.205200001015328,
+              "latency_p95_ms": 15.386300001409836,
+              "latency_p99_ms": 15.908400004263967,
+              "peak_cuda_memory_mib": 208.53173828125,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 14.233312000069418,
+                  "latency_p50_ms": 14.304200012702495,
+                  "latency_p95_ms": 15.386300001409836,
+                  "latency_p99_ms": 15.8746999950381,
+                  "samples_per_second": 2248.246929445791
+                },
+                {
+                  "latency_mean_ms": 14.373327999055618,
+                  "latency_p50_ms": 14.282499992987141,
+                  "latency_p95_ms": 15.929900007904507,
+                  "latency_p99_ms": 16.357399988919497,
+                  "samples_per_second": 2226.345909736598
+                },
+                {
+                  "latency_mean_ms": 14.271853999380255,
+                  "latency_p50_ms": 14.205200001015328,
+                  "latency_p95_ms": 15.501599991694093,
+                  "latency_p99_ms": 15.908400004263967,
+                  "samples_per_second": 2242.1754035172708
+                },
+                {
+                  "latency_mean_ms": 14.036035999961314,
+                  "latency_p50_ms": 14.12630001141224,
+                  "latency_p95_ms": 15.066599997226149,
+                  "latency_p99_ms": 15.33229999768082,
+                  "samples_per_second": 2279.845962213847
+                },
+                {
+                  "latency_mean_ms": 14.08790500005125,
+                  "latency_p50_ms": 14.143200009129941,
+                  "latency_p95_ms": 15.257100007147528,
+                  "latency_p99_ms": 17.13569999265019,
+                  "samples_per_second": 2271.4520008392724
+                }
+              ],
+              "samples_per_second": 2248.246929445791
+            }
+          ],
+          "end_to_end_batch1": {
+            "availability": "not_measured",
+            "value": null
+          },
+          "optimized": [
+            {
+              "batch_size": 1,
+              "latency_mean_ms": 3.061522500065621,
+              "latency_p50_ms": 3.0208999960450456,
+              "latency_p95_ms": 3.7995000020600855,
+              "latency_p99_ms": 4.219399997964501,
+              "peak_cuda_memory_mib": 55.3671875,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 3.297668000377598,
+                  "latency_p50_ms": 3.2719000009819865,
+                  "latency_p95_ms": 3.9426000003004447,
+                  "latency_p99_ms": 4.346100002294406,
+                  "samples_per_second": 303.24459584333397
+                },
+                {
+                  "latency_mean_ms": 3.3414329992228886,
+                  "latency_p50_ms": 3.3620000031078234,
+                  "latency_p95_ms": 4.175499998382293,
+                  "latency_p99_ms": 4.572399993776344,
+                  "samples_per_second": 299.27279710009697
+                },
+                {
+                  "latency_mean_ms": 3.061522500065621,
+                  "latency_p50_ms": 3.0208999960450456,
+                  "latency_p95_ms": 3.7995000020600855,
+                  "latency_p99_ms": 4.186000005574897,
+                  "samples_per_second": 326.6348687551915
+                },
+                {
+                  "latency_mean_ms": 2.9789089997211704,
+                  "latency_p50_ms": 3.006200000527315,
+                  "latency_p95_ms": 3.7052999978186563,
+                  "latency_p99_ms": 3.80399999266956,
+                  "samples_per_second": 335.69336965096994
+                },
+                {
+                  "latency_mean_ms": 2.8724700001475867,
+                  "latency_p50_ms": 2.9030000005150214,
+                  "latency_p95_ms": 3.749199997400865,
+                  "latency_p99_ms": 4.219399997964501,
+                  "samples_per_second": 348.1324434889208
+                }
+              ],
+              "samples_per_second": 326.6348687551915
+            },
+            {
+              "batch_size": 8,
+              "latency_mean_ms": 3.045381999691017,
+              "latency_p50_ms": 3.049399994779378,
+              "latency_p95_ms": 3.784800006542355,
+              "latency_p99_ms": 4.332100012106821,
+              "peak_cuda_memory_mib": 69.3134765625,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 3.045381999691017,
+                  "latency_p50_ms": 2.972700007376261,
+                  "latency_p95_ms": 3.7754999939352274,
+                  "latency_p99_ms": 4.100499994819984,
+                  "samples_per_second": 2626.9282476916446
+                },
+                {
+                  "latency_mean_ms": 3.2459885004209355,
+                  "latency_p50_ms": 3.0697000038344413,
+                  "latency_p95_ms": 4.394999996293336,
+                  "latency_p99_ms": 6.126899999799207,
+                  "samples_per_second": 2464.5805119034067
+                },
+                {
+                  "latency_mean_ms": 3.0163980005454505,
+                  "latency_p50_ms": 2.8538000042317435,
+                  "latency_p95_ms": 3.6986000050092116,
+                  "latency_p99_ms": 4.615500001818873,
+                  "samples_per_second": 2652.169905481098
+                },
+                {
+                  "latency_mean_ms": 3.003145500624669,
+                  "latency_p50_ms": 3.049399994779378,
+                  "latency_p95_ms": 3.784800006542355,
+                  "latency_p99_ms": 4.128200002014637,
+                  "samples_per_second": 2663.8735946479987
+                },
+                {
+                  "latency_mean_ms": 3.1647349998820573,
+                  "latency_p50_ms": 3.110799996647984,
+                  "latency_p95_ms": 3.9217000012286007,
+                  "latency_p99_ms": 4.332100012106821,
+                  "samples_per_second": 2527.8577828153516
+                }
+              ],
+              "samples_per_second": 2626.9282476916446
+            },
+            {
+              "batch_size": 32,
+              "latency_mean_ms": 6.668023000529502,
+              "latency_p50_ms": 6.674699994619004,
+              "latency_p95_ms": 7.4253000057069585,
+              "latency_p99_ms": 7.743699999991804,
+              "peak_cuda_memory_mib": 137.6572265625,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 6.663874999867403,
+                  "latency_p50_ms": 6.4611999987391755,
+                  "latency_p95_ms": 7.4253000057069585,
+                  "latency_p99_ms": 7.743699999991804,
+                  "samples_per_second": 4802.0108421356545
+                },
+                {
+                  "latency_mean_ms": 6.852128999234992,
+                  "latency_p50_ms": 6.843999988632277,
+                  "latency_p95_ms": 7.4979000055463985,
+                  "latency_p99_ms": 7.7668000012636185,
+                  "samples_per_second": 4670.081372311095
+                },
+                {
+                  "latency_mean_ms": 6.668023000529502,
+                  "latency_p50_ms": 6.615599995711818,
+                  "latency_p95_ms": 7.2727000078884885,
+                  "latency_p99_ms": 7.544700012658723,
+                  "samples_per_second": 4799.023638259632
+                },
+                {
+                  "latency_mean_ms": 6.845838499211823,
+                  "latency_p50_ms": 6.808500009356067,
+                  "latency_p95_ms": 7.461699991836213,
+                  "latency_p99_ms": 7.608600004459731,
+                  "samples_per_second": 4674.372613914897
+                },
+                {
+                  "latency_mean_ms": 6.665933498952654,
+                  "latency_p50_ms": 6.674699994619004,
+                  "latency_p95_ms": 7.080600000335835,
+                  "latency_p99_ms": 7.7997000043978915,
+                  "samples_per_second": 4800.527938814243
+                }
+              ],
+              "samples_per_second": 4799.023638259632
+            }
+          ],
+          "protocol": {
+            "aggregation": "median_of_repetition_summaries",
+            "execution_context": "torch.inference_mode",
+            "model_mode": "eval",
+            "repetitions": 5,
+            "timed_iterations": 200,
+            "warmup_iterations": 20
+          }
+        },
+        "memory": {
+          "peak_inference_cuda_memory_mib": 36.24169921875
+        },
+        "model": {
+          "backbone_output_channels": 320,
+          "classification_head": "cosface",
+          "embedding_dim": 320,
+          "name": "efficient_hccr"
+        },
+        "parameters": {
+          "backbone": 429440,
+          "classifier": 2299520,
+          "embedding_projection": 0,
+          "head": 2299520,
+          "total": 2728960,
+          "trainable": 2728960
+        },
+        "source_variant": "resource-profile-v2"
+      },
+      "run_id": "20260914T114052Z-00692c42",
+      "source": "runs/20260914T114052Z-00692c42/cuda/resource_profile.json"
+    },
+    {
+      "device": "cuda",
+      "provenance": {
+        "model": {
+          "angular_margin": 0.1,
+          "backbone_output_channels": 320,
+          "classification_head": "cosface",
+          "dropout": 0.1,
+          "effective_input_channels": 1,
+          "embedding_dim": 320,
+          "in_channels": 1,
+          "logit_scale": 32.0,
+          "name": "efficient_hccr",
+          "num_classes": 7186,
+          "reparameterize_depthwise": true,
+          "stage_depths": [
+            2,
+            3,
+            3
+          ],
+          "stem_stride": 2,
+          "width": 80
+        },
+        "preprocess": {
+          "image_size": 96,
+          "margin": 4
+        },
+        "profiled_at": "2026-09-17T19:48:56.463671+00:00",
+        "profiling_device": "cuda",
+        "run_id": "20260914T191814Z-89bc5055",
+        "schema_version": 1,
+        "seed": 29,
+        "source_checkpoint": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T191814Z-89bc5055\\checkpoint.pt",
+        "source_checkpoint_metadata": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T191814Z-89bc5055\\checkpoint_metadata.json",
+        "source_checkpoint_sha256": "18aa8434f82c42bcc641d0edacc0f2c2348c94a9b41fbd883f94f6bf6088ecd3",
+        "source_run_directory": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments\\20260914T191814Z-89bc5055"
+      },
+      "resources": {
+        "complexity": {
+          "flops": {
+            "availability": "measured",
+            "backbone": 283795200,
+            "classifier": 4621559,
+            "coverage": {
+              "complete": true,
+              "counted_operator_types": [
+                "aten.add",
+                "aten.clamp",
+                "aten.clamp_min",
+                "aten.convolution",
+                "aten.cudnn_batch_norm",
+                "aten.div",
+                "aten.linalg_vector_norm",
+                "aten.mean",
+                "aten.mm",
+                "aten.mul",
+                "aten.silu_"
+              ],
+              "estimator": "torch_dispatch_operator_formulas_v1",
+              "flops_by_operator": {
+                "aten.add": 2211840,
+                "aten.clamp": 14372,
+                "aten.clamp_min": 1,
+                "aten.convolution": 260674560,
+                "aten.cudnn_batch_norm": 12453120,
+                "aten.div": 320,
+                "aten.linalg_vector_norm": 640,
+                "aten.mean": 46080,
+                "aten.mm": 4599040,
+                "aten.mul": 7186,
+                "aten.silu_": 8409600
+              },
+              "note": "Complete means every operator observed during the traced eval forward is either counted or classified as zero arithmetic FLOPs. Data movement and kernel efficiency are represented by measured latency, not FLOPs.",
+              "unsupported_operator_types": [],
+              "zero_arithmetic_flop_operator_types": [
+                "aten.clone",
+                "aten.expand",
+                "aten.t",
+                "aten.view"
+              ]
+            },
+            "embedding_projection": 0,
+            "head": 4621559,
+            "total": 288416759
+          },
+          "full_class": {
+            "flops": 288416759,
+            "macs": 132636800,
+            "num_classes": 7186,
+            "parameter_count": 2728960
+          },
+          "macs": {
+            "availability": "measured",
+            "backbone": 130337280,
+            "classifier": 2299520,
+            "coverage": {
+              "complete": false,
+              "counted_operator_types": [
+                "AngularMarginClassifier",
+                "Conv2d"
+              ],
+              "estimator": "forward_hooks_conv_linear_and_fixed_filters",
+              "note": "Unsupported operators are excluded from estimated MACs; measured latency remains authoritative.",
+              "unsupported_operator_types": [
+                "AdaptiveAvgPool2d",
+                "BatchNorm2d",
+                "Dropout",
+                "Identity",
+                "SiLU"
+              ]
+            },
+            "embedding_projection": 0,
+            "head": 2299520,
+            "total": 132636800
+          },
+          "protocol": {
+            "activation_flops_per_element": {
+              "hardsigmoid": 4,
+              "hardswish": 5,
+              "relu": 1,
+              "sigmoid": 4,
+              "silu": 5
+            },
+            "batch_norm_inference_formula": "4 FLOPs per tensor element plus 2 FLOPs per channel",
+            "bias_additions_counted": true,
+            "cached_angular_weight_normalization": "excluded from per-sample inference",
+            "data_movement": "view, transpose, split, concatenate and copy operations contribute zero arithmetic FLOPs; their cost is captured by latency",
+            "estimator": "torch_dispatch_operator_formulas_v1",
+            "flops_per_mac": 2,
+            "input_shape": [
+              1,
+              1,
+              96,
+              96
+            ],
+            "model_mode": "eval",
+            "multiply_and_add_counted_separately": true,
+            "pooling": "reduction additions/divisions or comparisons are counted"
+          }
+        },
+        "device": "cuda",
+        "device_metadata": {
+          "cuda_version": "13.0",
+          "device": "cuda",
+          "device_name": "NVIDIA GeForce RTX 3060",
+          "dtype": "float32",
+          "inter_op_threads": 10,
+          "intra_op_threads": 10
+        },
+        "latency": {
+          "eager": [
+            {
+              "batch_size": 1,
+              "latency_mean_ms": 7.300074500526534,
+              "latency_p50_ms": 7.1641000104136765,
+              "latency_p95_ms": 8.917099999962375,
+              "latency_p99_ms": 10.06519999646116,
+              "peak_cuda_memory_mib": 36.24169921875,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 8.061532000865554,
+                  "latency_p50_ms": 8.091900002909824,
+                  "latency_p95_ms": 9.354300011182204,
+                  "latency_p99_ms": 10.04609999654349,
+                  "samples_per_second": 124.04590093950276
+                },
+                {
+                  "latency_mean_ms": 7.407458500529174,
+                  "latency_p50_ms": 7.226300003821962,
+                  "latency_p95_ms": 9.978100002626888,
+                  "latency_p99_ms": 11.976299996604212,
+                  "samples_per_second": 134.9990688342786
+                },
+                {
+                  "latency_mean_ms": 6.8543964995478746,
+                  "latency_p50_ms": 6.885299997520633,
+                  "latency_p95_ms": 8.071299991570413,
+                  "latency_p99_ms": 8.885999995982274,
+                  "samples_per_second": 145.8917645143466
+                },
+                {
+                  "latency_mean_ms": 7.300074500526534,
+                  "latency_p50_ms": 7.1641000104136765,
+                  "latency_p95_ms": 8.917099999962375,
+                  "latency_p99_ms": 10.06519999646116,
+                  "samples_per_second": 136.98490336336604
+                },
+                {
+                  "latency_mean_ms": 7.094043499528198,
+                  "latency_p50_ms": 6.925900001078844,
+                  "latency_p95_ms": 8.881899993866682,
+                  "latency_p99_ms": 10.577399996691383,
+                  "samples_per_second": 140.96333072478436
+                }
+              ],
+              "samples_per_second": 136.98490336336604
+            },
+            {
+              "batch_size": 8,
+              "latency_mean_ms": 7.203282000409672,
+              "latency_p50_ms": 6.964200001675636,
+              "latency_p95_ms": 8.391700001084246,
+              "latency_p99_ms": 10.607200005324557,
+              "peak_cuda_memory_mib": 72.68798828125,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 7.264403500230401,
+                  "latency_p50_ms": 7.384600001387298,
+                  "latency_p95_ms": 9.20359999872744,
+                  "latency_p99_ms": 10.607200005324557,
+                  "samples_per_second": 1101.2604131566025
+                },
+                {
+                  "latency_mean_ms": 6.938014500483405,
+                  "latency_p50_ms": 6.8675999937113374,
+                  "latency_p95_ms": 8.391700001084246,
+                  "latency_p99_ms": 10.658500003046356,
+                  "samples_per_second": 1153.0676390835738
+                },
+                {
+                  "latency_mean_ms": 7.2164150001481175,
+                  "latency_p50_ms": 6.8648000014945865,
+                  "latency_p95_ms": 9.425399999599904,
+                  "latency_p99_ms": 17.24439999088645,
+                  "samples_per_second": 1108.5836942354063
+                },
+                {
+                  "latency_mean_ms": 7.05544699994789,
+                  "latency_p50_ms": 6.964200001675636,
+                  "latency_p95_ms": 7.979700007126667,
+                  "latency_p99_ms": 10.062000001198612,
+                  "samples_per_second": 1133.875713340216
+                },
+                {
+                  "latency_mean_ms": 7.203282000409672,
+                  "latency_p50_ms": 7.1278000104939565,
+                  "latency_p95_ms": 8.33329999295529,
+                  "latency_p99_ms": 8.851299993693829,
+                  "samples_per_second": 1110.6048603324175
+                }
+              ],
+              "samples_per_second": 1110.6048603324175
+            },
+            {
+              "batch_size": 32,
+              "latency_mean_ms": 15.570030999951996,
+              "latency_p50_ms": 15.581900006509386,
+              "latency_p95_ms": 16.72159999725409,
+              "latency_p99_ms": 17.289799987338483,
+              "peak_cuda_memory_mib": 208.53173828125,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 15.697570000993437,
+                  "latency_p50_ms": 15.49920000252314,
+                  "latency_p95_ms": 16.72159999725409,
+                  "latency_p99_ms": 21.72380000411067,
+                  "samples_per_second": 2038.5320784028895
+                },
+                {
+                  "latency_mean_ms": 15.54776550110546,
+                  "latency_p50_ms": 15.581900006509386,
+                  "latency_p95_ms": 16.79230001172982,
+                  "latency_p99_ms": 17.289799987338483,
+                  "samples_per_second": 2058.1735682677213
+                },
+                {
+                  "latency_mean_ms": 15.570030999951996,
+                  "latency_p50_ms": 15.796499996213242,
+                  "latency_p95_ms": 16.655800005537458,
+                  "latency_p99_ms": 16.903600000659935,
+                  "samples_per_second": 2055.2303332022047
+                },
+                {
+                  "latency_mean_ms": 15.428007499795058,
+                  "latency_p50_ms": 15.438100002938882,
+                  "latency_p95_ms": 16.52520000061486,
+                  "latency_p99_ms": 16.826100007165223,
+                  "samples_per_second": 2074.1498862004755
+                },
+                {
+                  "latency_mean_ms": 16.0282059997553,
+                  "latency_p50_ms": 16.127299997606315,
+                  "latency_p95_ms": 17.382899997755885,
+                  "latency_p99_ms": 20.25879999564495,
+                  "samples_per_second": 1996.4804545492202
+                }
+              ],
+              "samples_per_second": 2055.2303332022047
+            }
+          ],
+          "end_to_end_batch1": {
+            "availability": "not_measured",
+            "value": null
+          },
+          "optimized": [
+            {
+              "batch_size": 1,
+              "latency_mean_ms": 1.557138000280247,
+              "latency_p50_ms": 1.4316000015242025,
+              "latency_p95_ms": 2.5865000061457977,
+              "latency_p99_ms": 3.0251999996835366,
+              "peak_cuda_memory_mib": 55.3671875,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 1.7046419995313045,
+                  "latency_p50_ms": 1.5653999871574342,
+                  "latency_p95_ms": 2.5865000061457977,
+                  "latency_p99_ms": 3.0943000019760802,
+                  "samples_per_second": 586.6334399099356
+                },
+                {
+                  "latency_mean_ms": 1.5420470001845388,
+                  "latency_p50_ms": 1.3984999968670309,
+                  "latency_p95_ms": 2.656700002262369,
+                  "latency_p99_ms": 3.0251999996835366,
+                  "samples_per_second": 648.4886646647792
+                },
+                {
+                  "latency_mean_ms": 1.767516499676276,
+                  "latency_p50_ms": 1.5982999902917072,
+                  "latency_p95_ms": 2.9535999929066747,
+                  "latency_p99_ms": 3.363399999216199,
+                  "samples_per_second": 565.7655813584495
+                },
+                {
+                  "latency_mean_ms": 1.557138000280247,
+                  "latency_p50_ms": 1.4200000005075708,
+                  "latency_p95_ms": 2.21130000136327,
+                  "latency_p99_ms": 2.997600007802248,
+                  "samples_per_second": 642.2038379514368
+                },
+                {
+                  "latency_mean_ms": 1.5518190001603216,
+                  "latency_p50_ms": 1.4316000015242025,
+                  "latency_p95_ms": 2.0579999982146546,
+                  "latency_p99_ms": 3.0147000070428476,
+                  "samples_per_second": 644.4050497491576
+                }
+              ],
+              "samples_per_second": 642.2038379514368
+            },
+            {
+              "batch_size": 8,
+              "latency_mean_ms": 2.13220299956447,
+              "latency_p50_ms": 2.011000004131347,
+              "latency_p95_ms": 2.8997000044910237,
+              "latency_p99_ms": 3.107500000623986,
+              "peak_cuda_memory_mib": 69.3134765625,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 2.2001870006351965,
+                  "latency_p50_ms": 2.0610000065062195,
+                  "latency_p95_ms": 3.072000006795861,
+                  "latency_p99_ms": 3.345899996929802,
+                  "samples_per_second": 3636.054570675307
+                },
+                {
+                  "latency_mean_ms": 1.981087000167463,
+                  "latency_p50_ms": 1.9336000113980845,
+                  "latency_p95_ms": 2.5794999965000898,
+                  "latency_p99_ms": 3.0078000127105042,
+                  "samples_per_second": 4038.1871161255176
+                },
+                {
+                  "latency_mean_ms": 2.2126329998718575,
+                  "latency_p50_ms": 2.1190999977989122,
+                  "latency_p95_ms": 2.97060000593774,
+                  "latency_p99_ms": 3.2892000017454848,
+                  "samples_per_second": 3615.6018645944955
+                },
+                {
+                  "latency_mean_ms": 1.9211095001810463,
+                  "latency_p50_ms": 1.7417000053683296,
+                  "latency_p95_ms": 2.4055000103544444,
+                  "latency_p99_ms": 2.669100009370595,
+                  "samples_per_second": 4164.260287737933
+                },
+                {
+                  "latency_mean_ms": 2.13220299956447,
+                  "latency_p50_ms": 2.011000004131347,
+                  "latency_p95_ms": 2.8997000044910237,
+                  "latency_p99_ms": 3.107500000623986,
+                  "samples_per_second": 3751.987968140981
+                }
+              ],
+              "samples_per_second": 3751.987968140981
+            },
+            {
+              "batch_size": 32,
+              "latency_mean_ms": 7.483010500582168,
+              "latency_p50_ms": 7.3880999989341944,
+              "latency_p95_ms": 8.282299997517839,
+              "latency_p99_ms": 8.651799988001585,
+              "peak_cuda_memory_mib": 137.6572265625,
+              "repeat_summaries": [
+                {
+                  "latency_mean_ms": 7.434644499735441,
+                  "latency_p50_ms": 7.3296999908052385,
+                  "latency_p95_ms": 8.216199988964945,
+                  "latency_p99_ms": 8.651799988001585,
+                  "samples_per_second": 4304.173521832646
+                },
+                {
+                  "latency_mean_ms": 7.501214999647345,
+                  "latency_p50_ms": 7.462699999450706,
+                  "latency_p95_ms": 8.282299997517839,
+                  "latency_p99_ms": 8.53709998773411,
+                  "samples_per_second": 4265.975578823486
+                },
+                {
+                  "latency_mean_ms": 7.483010500582168,
+                  "latency_p50_ms": 7.3880999989341944,
+                  "latency_p95_ms": 8.481699987896718,
+                  "latency_p99_ms": 8.760099997743964,
+                  "samples_per_second": 4276.353747934798
+                },
+                {
+                  "latency_mean_ms": 7.393441500025801,
+                  "latency_p50_ms": 7.345599995460361,
+                  "latency_p95_ms": 8.229999992181547,
+                  "latency_p99_ms": 8.444099992630072,
+                  "samples_per_second": 4328.1603025990435
+                },
+                {
+                  "latency_mean_ms": 7.568119999705232,
+                  "latency_p50_ms": 7.507899994379841,
+                  "latency_p95_ms": 8.604400005424395,
+                  "latency_p99_ms": 9.135699991020374,
+                  "samples_per_second": 4228.26276555424
+                }
+              ],
+              "samples_per_second": 4276.353747934798
+            }
+          ],
+          "protocol": {
+            "aggregation": "median_of_repetition_summaries",
+            "execution_context": "torch.inference_mode",
+            "model_mode": "eval",
+            "repetitions": 5,
+            "timed_iterations": 200,
+            "warmup_iterations": 20
+          }
+        },
+        "memory": {
+          "peak_inference_cuda_memory_mib": 36.24169921875
+        },
+        "model": {
+          "backbone_output_channels": 320,
+          "classification_head": "cosface",
+          "embedding_dim": 320,
+          "name": "efficient_hccr"
+        },
+        "parameters": {
+          "backbone": 429440,
+          "classifier": 2299520,
+          "embedding_projection": 0,
+          "head": 2299520,
+          "total": 2728960,
+          "trainable": 2728960
+        },
+        "source_variant": "resource-profile-v2"
+      },
+      "run_id": "20260914T191814Z-89bc5055",
+      "source": "runs/20260914T191814Z-89bc5055/cuda/resource_profile.json"
+    }
+  ],
+  "schema_version": 1,
+  "source_root": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch",
+  "sources": {
+    "runs/20260914T040219Z-d03507d1/cuda/provenance.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/runs/20260914T040219Z-d03507d1/cuda/provenance.json",
+      "detected_schema": "declared-v1",
+      "sha256": "sha256:80ba6333c046daabb2ac20eaea7ed23e123064b4117e5662895aa6fe9b327586",
+      "size_bytes": 1315,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\runs\\20260914T040219Z-d03507d1\\cuda\\provenance.json"
+    },
+    "runs/20260914T040219Z-d03507d1/cuda/resource_profile.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/runs/20260914T040219Z-d03507d1/cuda/resource_profile.json",
+      "detected_schema": "resource-profile-v2",
+      "sha256": "sha256:eccface9c86832782364e92c6eb5b3706cf51f92b9858d6cd7c14f8a9d0c105f",
+      "size_bytes": 18668,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\runs\\20260914T040219Z-d03507d1\\cuda\\resource_profile.json"
+    },
+    "runs/20260914T114052Z-00692c42/cuda/provenance.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/runs/20260914T114052Z-00692c42/cuda/provenance.json",
+      "detected_schema": "declared-v1",
+      "sha256": "sha256:32b5b2bc7592c204187fd6fb7fb5ef2fab545f3d6b90079a736e21c1a1ce4bad",
+      "size_bytes": 1316,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\runs\\20260914T114052Z-00692c42\\cuda\\provenance.json"
+    },
+    "runs/20260914T114052Z-00692c42/cuda/resource_profile.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/runs/20260914T114052Z-00692c42/cuda/resource_profile.json",
+      "detected_schema": "resource-profile-v2",
+      "sha256": "sha256:5d974117fbe95b1f40e16179386d04a762b483ed504d2e5a265374ad97821e5a",
+      "size_bytes": 18701,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\runs\\20260914T114052Z-00692c42\\cuda\\resource_profile.json"
+    },
+    "runs/20260914T191814Z-89bc5055/cuda/provenance.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/runs/20260914T191814Z-89bc5055/cuda/provenance.json",
+      "detected_schema": "declared-v1",
+      "sha256": "sha256:8587030fce980763bd516d60811abaa5fa998b1b650893bd0e8bd0d0077f0ca8",
+      "size_bytes": 1316,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\runs\\20260914T191814Z-89bc5055\\cuda\\provenance.json"
+    },
+    "runs/20260914T191814Z-89bc5055/cuda/resource_profile.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/runs/20260914T191814Z-89bc5055/cuda/resource_profile.json",
+      "detected_schema": "resource-profile-v2",
+      "sha256": "sha256:3f5ce4220fe29138caa433d1e6cd7cdc58be571c3444d31d824d4ed50312cfe2",
+      "size_bytes": 18691,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\runs\\20260914T191814Z-89bc5055\\cuda\\resource_profile.json"
+    },
+    "selection.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/selection.json",
+      "detected_schema": "unversioned-json",
+      "sha256": "sha256:581c8aae247fb2562866c78323147f4411f5b05f820872d61f932dee79968c6e",
+      "size_bytes": 161,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\selection.json"
+    },
+    "summary.csv": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/summary.csv",
+      "detected_schema": "csv-header-sha256:945e00ad4cce",
+      "sha256": "sha256:a60f0366779c46473574a89c66e913f5c3d5e11808ad5f4b104799b023ee531e",
+      "size_bytes": 1160,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\summary.csv"
+    },
+    "summary.json": {
+      "bundle_path": "raw/derived/profiling-20260918-rtx3060-multi-branch/summary.json",
+      "detected_schema": "declared-v1",
+      "sha256": "sha256:43b6c354397a46cf4d4b7de320667c382a64bc6ad0fdd9afb06bb234183b6d12",
+      "size_bytes": 3994,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments_20260915\\profiling-20260918-rtx3060-multi-branch\\summary.json"
+    }
+  },
+  "summary": {
+    "completed_at": "2026-09-17T19:48:56.483046+00:00",
+    "excluded_runs": [],
+    "included_run_count": 3,
+    "protocol": {
+      "benchmark_iterations": 200,
+      "benchmark_repetitions": 5,
+      "device": "cuda",
+      "source_runs_root": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\artifacts\\experiments-20260915\\experiments",
+      "warmup_iterations": 20
+    },
+    "runs": [
+      {
+        "checkpoint_sha256": "e8b0f3635a75823dc4d5c51ffb9ca09b96f8794b08800d2018c7ca1b7fce4c6c",
+        "classification_head": "cosface",
+        "device": "cuda",
+        "eager_batch1_p50_ms": 7.115100001101382,
+        "eager_batch1_p95_ms": 8.21550001273863,
+        "estimated_flops": 288416759,
+        "estimated_macs": 132636800,
+        "flop_coverage_complete": true,
+        "model": "efficient_hccr",
+        "optimized_batch1_p50_ms": 2.9943999979877844,
+        "optimized_batch1_p95_ms": 3.7733999924967065,
+        "optimized_estimated_flops": 267646199,
+        "optimized_estimated_macs": 128351360,
+        "optimized_flop_coverage_complete": true,
+        "optimized_parameter_count": 2712320,
+        "parameter_count": 2728960,
+        "reparameterize_depthwise": true,
+        "run_id": "20260914T040219Z-d03507d1",
+        "seed": 7
+      },
+      {
+        "checkpoint_sha256": "902788a90459513f8ac19917e1fa32fce231aa64dd07171a5446b5a6f1827266",
+        "classification_head": "cosface",
+        "device": "cuda",
+        "eager_batch1_p50_ms": 7.229199996800162,
+        "eager_batch1_p95_ms": 9.021000005304813,
+        "estimated_flops": 288416759,
+        "estimated_macs": 132636800,
+        "flop_coverage_complete": true,
+        "model": "efficient_hccr",
+        "optimized_batch1_p50_ms": 3.0208999960450456,
+        "optimized_batch1_p95_ms": 3.7995000020600855,
+        "optimized_estimated_flops": 267646199,
+        "optimized_estimated_macs": 128351360,
+        "optimized_flop_coverage_complete": true,
+        "optimized_parameter_count": 2712320,
+        "parameter_count": 2728960,
+        "reparameterize_depthwise": true,
+        "run_id": "20260914T114052Z-00692c42",
+        "seed": 17
+      },
+      {
+        "checkpoint_sha256": "18aa8434f82c42bcc641d0edacc0f2c2348c94a9b41fbd883f94f6bf6088ecd3",
+        "classification_head": "cosface",
+        "device": "cuda",
+        "eager_batch1_p50_ms": 7.1641000104136765,
+        "eager_batch1_p95_ms": 8.917099999962375,
+        "estimated_flops": 288416759,
+        "estimated_macs": 132636800,
+        "flop_coverage_complete": true,
+        "model": "efficient_hccr",
+        "optimized_batch1_p50_ms": 1.4316000015242025,
+        "optimized_batch1_p95_ms": 2.5865000061457977,
+        "optimized_estimated_flops": 267646199,
+        "optimized_estimated_macs": 128351360,
+        "optimized_flop_coverage_complete": true,
+        "optimized_parameter_count": 2712320,
+        "parameter_count": 2728960,
+        "reparameterize_depthwise": true,
+        "run_id": "20260914T191814Z-89bc5055",
+        "seed": 29
+      }
+    ],
+    "schema_version": 1,
+    "variants": {
+      "efficient_hccr|head=cosface|reparam=true": {
+        "estimated_flops": 288416759,
+        "estimated_macs": 132636800,
+        "latency_ms": {
+          "eager_batch1_p50_ms": {
+            "mean": 7.169466669438407,
+            "n": 3,
+            "std": 0.05723899917391274
+          },
+          "eager_batch1_p95_ms": {
+            "mean": 8.717866672668606,
+            "n": 3,
+            "std": 0.43815293966198576
+          },
+          "optimized_batch1_p50_ms": {
+            "mean": 2.482299998519011,
+            "n": 3,
+            "std": 0.9100293540528934
+          },
+          "optimized_batch1_p95_ms": {
+            "mean": 3.3864666669008634,
+            "n": 3,
+            "std": 0.6929143499484692
+          }
+        },
+        "parameter_count": 2728960,
+        "run_ids": [
+          "20260914T040219Z-d03507d1",
+          "20260914T114052Z-00692c42",
+          "20260914T191814Z-89bc5055"
+        ],
+        "seeds": [
+          7,
+          17,
+          29
+        ]
+      }
+    }
+  }
+}

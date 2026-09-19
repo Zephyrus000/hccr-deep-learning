@@ -1,0 +1,15 @@
+{
+  "artifact_type": "hccr.standalone_evidence",
+  "name": "experiment_summary.csv",
+  "row_count": 18,
+  "schema_version": 1,
+  "sources": {
+    "experiment_summary.csv": {
+      "bundle_path": "raw/standalone/experiment_summary.csv",
+      "detected_schema": "csv-header-sha256:fda3ca607816",
+      "sha256": "sha256:c39eb5f0bc7cbc388fb636f689fe3c2990a5909cf3ee8b276b5e55eceebc7146",
+      "size_bytes": 15249,
+      "source_path": "C:\\Users\\Root\\Documents\\Swinburne\\hccr-deep-learning\\experiments\\experiment_summary.csv"
+    }
+  }
+}

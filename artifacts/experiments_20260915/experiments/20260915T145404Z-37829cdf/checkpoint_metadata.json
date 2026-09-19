@@ -1,0 +1,95 @@
+{
+  "schema_version": 8,
+  "model": {
+    "name": "shufflenet_v2_x1_0",
+    "in_channels": 1,
+    "effective_input_channels": 1,
+    "classification_head": "cosface",
+    "num_classes": 7186,
+    "logit_scale": 32.0,
+    "angular_margin": 0.1
+  },
+  "training": {
+    "loss": "cross_entropy",
+    "label_smoothing": 0.0,
+    "margin_schedule": "linear_warmup",
+    "margin_warmup_ratio": 0.2,
+    "resolved_margin_warmup_epochs": 4,
+    "optimizer_step_policy": "configured_epochs",
+    "reference_batch_size": 256,
+    "batch_size": 256,
+    "effective_global_batch_size": 256,
+    "distributed": {
+      "enabled": false,
+      "rank": 0,
+      "world_size": 1,
+      "local_rank": 0,
+      "backend": null,
+      "device": "cuda"
+    },
+    "precision": {
+      "requested": "bfloat16",
+      "resolved": "bfloat16",
+      "autocast_enabled": true,
+      "autocast_dtype": "bfloat16",
+      "grad_scaler": false
+    },
+    "configured_epochs": 20,
+    "resolved_epochs": 20,
+    "steps_per_epoch": 10839,
+    "reference_steps_per_epoch": 10839,
+    "total_optimizer_steps": 216780,
+    "learning_rate_scaling": "none",
+    "base_learning_rate": 0.0003,
+    "resolved_learning_rate": 0.0003,
+    "lr_warmup_ratio": 0.0,
+    "warmup_steps": 0,
+    "augmentation": "random_affine_and_blur"
+  },
+  "preprocess": {
+    "image_size": 96,
+    "margin": 4
+  },
+  "selection": {
+    "split": "validation",
+    "metrics": {
+      "top1": 0.9543393399313908,
+      "top5": 0.9916932823363958,
+      "macro_recall": 0.9554639174141335,
+      "head_recall": 0.9532829569085103,
+      "mid_recall": 0.9552245933792844,
+      "tail_recall": 0.9583630165685172
+    }
+  },
+  "test": {
+    "split": "test",
+    "status": "completed",
+    "evaluation_policy": "final_test",
+    "writer_provenance": {
+      "availability": "unavailable",
+      "overlap_check": "not_verifiable",
+      "writer_disjoint_verified": null,
+      "known_writer_samples": 0,
+      "missing_writer_samples": 3821455,
+      "train_validation_test_overlap_count": 0
+    },
+    "metrics": {
+      "top1": 0.9488596259637817,
+      "top5": 0.9897721945936626,
+      "macro_recall": 0.9531416449517734,
+      "head_recall": 0.9430497964780314,
+      "mid_recall": 0.9525081563195849,
+      "tail_recall": 0.9651344001631618,
+      "samples": 742388,
+      "classes": 7186,
+      "mean_confidence": 0.96429695957604,
+      "expected_calibration_error": 0.015896012539119073,
+      "recorded_errors": 1000,
+      "unique_confusion_pairs": 26672
+    },
+    "checkpoint": "checkpoint.pt"
+  },
+  "manifest_digest": "c639fb95e757aeb43a8b1134d96fa610df2578fd927a697bc95c22bae74db721",
+  "labels_digest": "af28070bc9205938b54446e9799e2917d5bdda580937c78512f2cc47e333c39c",
+  "class_subset_digest": null
+}
