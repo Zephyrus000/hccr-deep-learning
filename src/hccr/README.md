@@ -23,6 +23,7 @@ and the legacy reserved commands are placeholders, not complete workflows.
 | [`commands`](commands/) | Isolated CLI parsers and handlers for each workflow. |
 | [`config`](config/README.md) | YAML loading and small cross-layer configuration records. |
 | [`data`](data/README.md) | Manifest validation, folder adapters, class subsets, and PyTorch datasets. |
+| [`evidence`](evidence/README.md) | Immutable raw-artifact checksums and canonical reviewer evidence bundles. |
 | [`preprocessing`](preprocessing/README.md) | Deterministic evaluation normalization and train-only augmentation. |
 | [`models`](models/README.md) | `EfficientHCCRNet`, angular classifiers, and inference optimization. |
 | [`training`](training/README.md) | End-to-end training orchestration, callbacks, diagnostics, and checkpoints. |
@@ -64,3 +65,19 @@ may change without a compatibility guarantee.
 
 See the [repository README](../../README.md) for installation and complete CLI
 examples.
+
+## Paper reproducibility boundary
+
+For reviewer reproduction, this package is an implementation of the protocol
+fixed by the repository-level experiment YAML, not an independent source of
+experimental defaults. A refactor is paper-neutral only when it preserves:
+
+- manifest digest and split membership;
+- evaluation and training transforms;
+- model/checkpoint key compatibility and reconstructed hyperparameters;
+- optimizer-step budget, precision, seed, and checkpoint-selection policy;
+- metric definitions and the versioned benchmark protocol.
+
+The authoritative evidence chain is `plan.json` → run `config.json` and
+`metadata.json` → checkpoint metadata → `metrics.json`/`resource_profile.json`
+→ sweep `summary.json`. See the [paper reproduction guide](../../README.md#reproducing-the-paper-experiments).

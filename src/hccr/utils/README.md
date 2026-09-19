@@ -41,3 +41,16 @@ they do not interrupt tqdm, but they remain available in `run.log`.
 Device resolution imports PyTorch lazily. This keeps CPU-only bootstrap and
 configuration inspection usable even when PyTorch is absent; explicitly
 requesting CUDA still fails clearly.
+
+## Artifact provenance
+
+`metadata.json` is the reviewer-facing provenance record. It binds a run to its
+Git commit, dirty working-tree digest, environment, device, and manifest
+digest. Keep it beside the resolved config and checkpoint; a checkpoint copied
+without provenance cannot establish that it corresponds to a paper row.
+
+Refactors of metadata helpers must preserve stable JSON types and existing
+field meanings. Adding a versioned field is safe; silently reinterpreting or
+overwriting a historical metric is not. Post-hoc audit scripts should write new
+artifacts or update only fields they actually recomputed, leaving unavailable
+measurements explicit rather than replacing them with empty values.

@@ -39,3 +39,12 @@ predictor = Predictor(model, labels, device="cpu")
 
 The high-level `hccr predict` CLI command is currently a placeholder; this
 Python API is the implemented inference surface.
+
+## Reviewer checks
+
+Prediction is reproducible only when four artifacts agree: checkpoint weights,
+checkpoint model metadata, ordered `labels.json`, and evaluation preprocessing.
+Before accepting a refactored loader or deploy path, compare eager logits and
+top-k indices on fixed preprocessed tensors and reject missing/unexpected state
+keys. Optimized inference requires a second logit-equivalence check and must be
+reported separately from the eager paper comparison.

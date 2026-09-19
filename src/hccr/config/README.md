@@ -37,5 +37,24 @@ print(data.manifest_path, data.image_size)
 - The normal filesystem or YAML parser exception for unreadable/invalid input.
 
 Experiment sweep YAML is interpreted by `hccr.experiment_runner`; see
-[`configs/experiment/ablations.yaml`](../../../configs/experiment/ablations.yaml)
-for the supported `base_args` and `variants` structure.
+[`configs/experiment/thesis_model_comparison.yaml`](../../../configs/experiment/thesis_model_comparison.yaml)
+for the supported `base_args`, `variants`, hardware constraints, and seed
+structure.
+
+[`configs/model/baseline.yaml`](../../../configs/model/baseline.yaml) is only an
+architecture mirror of the paper's single-branch EfficientHCCR control. It is
+not an independent training preset. The experiment YAML and generated
+`plan.json` remain the executable protocol.
+
+## Reproducibility rule
+
+For paper experiments, the YAML plus its generated `plan.json` is the immutable
+configuration record. Reviewers should compare the expanded command matrix,
+not rely on prose or current defaults. Unknown/misspelled training keys fail
+during command validation, while hardware requirements are checked before a
+non-dry run. Preserve the YAML, plan, Git commit, and every run's resolved
+`config.json` together.
+
+Changing a schema or loader is paper-neutral only when the same YAML expands to
+the same jobs and resolved training values. If a new default changes an omitted
+field, pin that field in the paper YAML before claiming protocol equivalence.

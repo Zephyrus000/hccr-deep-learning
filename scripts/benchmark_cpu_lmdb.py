@@ -6,10 +6,11 @@ import argparse
 import csv
 import json
 import platform
+import random
 import statistics
 import time
-from datetime import datetime, timezone
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,10 +23,12 @@ from hccr.benchmarking import (
     summarize_timings,
 )
 from hccr.data.dataset import HCCRDataset
-from hccr.models import build_model, optimize_model_for_inference
+from hccr.models import (
+    load_model_from_run,
+    optimize_model_for_inference,
+    read_checkpoint_metadata,
+)
 from hccr.preprocessing import EvalPreprocessor
-
-IMAGE_SIZE = 96
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,7 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iterations", type=int, default=3000)
     parser.add_argument("--repetitions", type=int, default=5)
     parser.add_argument("--sample-index", type=int, default=0)
-    parser.add_argument("--summary", type=Path, default=Path("experiments/experiment_summary.csv"))
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=Path("experiments/experiment_summary.csv"),
+    )
     parser.add_argument("--selection-seed", type=int, default=20260918)
     parser.add_argument(
         "--output",
@@ -91,10 +98,17 @@ def benchmark_model(
                 model(sample)
                 timings.append((time.perf_counter_ns() - started_at) / 1_000_000)
             summary = summarize_timings(timings, batch_size=1)
-            summary.update({"repetition_index": repetition_index,
-                            "latency_std_ms": statistics.stdev(timings),
-                            "latency_min_ms": min(timings), "latency_max_ms": max(timings),
-                            "timed_pass_count": len(timings)})
+            summary.update(
+                {
+                    "repetition_index": repetition_index,
+                    "latency_std_ms": (
+                        statistics.stdev(timings) if len(timings) > 1 else 0.0
+                    ),
+                    "latency_min_ms": min(timings),
+                    "latency_max_ms": max(timings),
+                    "timed_pass_count": len(timings),
+                }
+            )
             repeat_summaries.append(summary)
     return aggregate_timing_summaries(repeat_summaries)
 
@@ -113,10 +127,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("threads, warmup, iterations and repetitions must be positive")
     torch.set_num_threads(arguments.threads)
     torch.set_num_interop_threads(1)
+    selected_manifest = _resolve_run_manifest(arguments)
+    preprocess = _shared_preprocess(selected_manifest)
+    image_size = int(preprocess["image_size"])
     dataset = HCCRDataset(
         arguments.manifest,
         arguments.split,
-        EvalPreprocessor(IMAGE_SIZE),
+        EvalPreprocessor(**preprocess),
         storage_backend="lmdb",
         lmdb_path=arguments.lmdb,
         metadata_mode="index",
@@ -125,13 +142,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("benchmark split contains no samples")
     sample_index = arguments.sample_index % len(dataset)
     sample = dataset[sample_index][0].unsqueeze(0)
-    selected_manifest = _select_runs(arguments.summary, arguments.experiments)
-    selected = [item["run_id"] for item in selected_manifest]
-    execution_order = list(selected)
-    import random
+    execution_order = list(selected_manifest)
     random.Random(arguments.selection_seed).shuffle(execution_order)
     report = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "schema_version": BENCHMARK_SCHEMA_VERSION,
         "benchmark_protocol": build_benchmark_protocol(
             device="cpu",
@@ -142,7 +156,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             scope="model_forward",
             metadata={
                 "dtype": "float32",
-                "execution_mode": arguments.mode, "optimized": arguments.mode == "optimized",
+                "execution_mode": arguments.mode,
+                "optimized": arguments.mode == "optimized",
                 "optimization_transforms": (
                     []
                     if arguments.mode == "eager"
@@ -150,36 +165,36 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "intra_op_threads": torch.get_num_threads(),
                 "inter_op_threads": torch.get_num_interop_threads(),
-                "input_shape": [1, 1, IMAGE_SIZE, IMAGE_SIZE],
-                "preprocessing": (
-                    f"EvalPreprocessor(image_size={IMAGE_SIZE}, margin=4)"
-                ),
+                "input_shape": [1, 1, image_size, image_size],
+                "preprocessing": preprocess,
                 "dataset_backend": "lmdb",
                 "manifest_path": str(arguments.manifest),
                 "lmdb_path": str(arguments.lmdb),
                 "split": arguments.split,
                 "sample_index": sample_index,
-                "cpu_model": platform.processor(), "operating_system": platform.platform(),
-                "python_version": platform.python_version(), "pytorch_version": torch.__version__,
-                "aggregation_convention": "checkpoint=median of five repetition means/p50/p95; model=mean and sample SD over seeds",
+                "cpu_model": platform.processor(),
+                "operating_system": platform.platform(),
+                "python_version": platform.python_version(),
+                "pytorch_version": torch.__version__,
+                "aggregation_convention": (
+                    "checkpoint=median of repetition summaries; "
+                    "model=mean and sample SD over selected seeds"
+                ),
             },
         ),
         "results": [],
-        "selected_run_manifest": selected_manifest, "execution_order": execution_order,
+        "selected_run_manifest": selected_manifest,
+        "execution_order": [item["run_id"] for item in execution_order],
     }
-    for run_id in execution_order:
-        config_path = arguments.experiments / run_id / "config.json"
-        run_dir = config_path.parent
+    for selection in execution_order:
+        run_dir = Path(selection["run_path"])
         checkpoint = run_dir / "checkpoint.pt"
-        if not checkpoint.is_file():
-            continue
-        model, model_name = _model_from_run(run_dir)
-        model.load_state_dict(
-            torch.load(checkpoint, map_location="cpu", weights_only=True)
-        )
+        model = load_model_from_run(run_dir)
+        model_name = str(selection["model"])
         model = _prepare_model_for_mode(model, arguments.mode)
         result = {
             "run_id": run_dir.name,
+            "seed": selection.get("seed"),
             "model_name": model_name,
             "checkpoint": str(checkpoint),
             "precision": "float32",
@@ -223,66 +238,102 @@ def _prepare_model_for_mode(model: torch.nn.Module, mode: str) -> torch.nn.Modul
     raise ValueError(f"unsupported benchmark mode: {mode}")
 
 
-def _config_paths(experiments: Path, runs: Sequence[Path] | None) -> list[Path]:
-    if runs:
-        return [run / "config.json" for run in runs]
-    direct_config = experiments / "config.json"
-    if direct_config.is_file():
-        return [direct_config]
-    return sorted(experiments.glob("*/config.json"))
+def _resolve_run_manifest(arguments: argparse.Namespace) -> list[dict[str, Any]]:
+    if arguments.runs:
+        return [_explicit_run_entry(path) for path in arguments.runs]
+    return _select_runs(arguments.summary, arguments.experiments)
 
-def _select_runs(summary: Path, experiments: Path) -> list[str]:
-    required = {"resnet18", "efficientnet_b0", "efficient_hccr", "mobilenet_v3_small", "shufflenet_v2_x1_0"}
-    rows = list(csv.DictReader(summary.open(encoding="utf-8")))
-    chosen = []
+
+def _explicit_run_entry(run_dir: Path) -> dict[str, Any]:
+    run_dir = run_dir.resolve()
+    config = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+    metadata = read_checkpoint_metadata(run_dir)
+    checkpoint = run_dir / "checkpoint.pt"
+    if not checkpoint.is_file():
+        raise FileNotFoundError(checkpoint)
+    return {
+        "model": metadata["model"]["name"],
+        "seed": config.get("seed"),
+        "run_id": run_dir.name,
+        "run_path": str(run_dir),
+        "reparameterize_depthwise": metadata["model"].get(
+            "reparameterize_depthwise"
+        ),
+        "checkpoint": str(checkpoint),
+        "checkpoint_exists": True,
+        "preprocess": metadata["preprocess"],
+        "selection": "explicit",
+    }
+
+
+def _select_runs(summary: Path, experiments: Path) -> list[dict[str, Any]]:
+    required = {
+        "resnet18",
+        "efficientnet_b0",
+        "efficient_hccr",
+        "mobilenet_v3_small",
+        "shufflenet_v2_x1_0",
+    }
+    with summary.open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
     manifest = []
     for model in sorted(required):
         for seed in (7, 17, 29):
-            candidates = [r for r in rows if r["model"] == model and int(r["seed"]) == seed
-                          and (model != "efficient_hccr" or r["reparameterize_depthwise"].lower() == "false")]
+            candidates = [
+                row
+                for row in rows
+                if row["model"] == model
+                and int(row["seed"]) == seed
+                and (
+                    model != "efficient_hccr"
+                    or row["reparameterize_depthwise"].lower() == "false"
+                )
+            ]
             if len(candidates) != 1:
-                raise ValueError(f"expected exactly one candidate for {model} seed {seed}, found {len(candidates)}")
-            r = candidates[0]; run = experiments / r["run_id"]; checkpoint = run / "checkpoint.pt"
-            if not checkpoint.is_file(): raise FileNotFoundError(checkpoint)
-            chosen.append(r["run_id"]); manifest.append({"model": model, "seed": seed, "run_id": r["run_id"], "reparameterize_depthwise": r["reparameterize_depthwise"], "checkpoint": str(checkpoint), "checkpoint_exists": True})
+                raise ValueError(
+                    f"expected exactly one candidate for {model} seed {seed}, "
+                    f"found {len(candidates)}"
+                )
+            row = candidates[0]
+            run = (experiments / row["run_id"]).resolve()
+            checkpoint = run / "checkpoint.pt"
+            if not checkpoint.is_file():
+                raise FileNotFoundError(checkpoint)
+            metadata = read_checkpoint_metadata(run)
+            manifest.append(
+                {
+                    "model": model,
+                    "seed": seed,
+                    "run_id": row["run_id"],
+                    "run_path": str(run),
+                    "reparameterize_depthwise": row[
+                        "reparameterize_depthwise"
+                    ],
+                    "checkpoint": str(checkpoint),
+                    "checkpoint_exists": True,
+                    "preprocess": metadata["preprocess"],
+                    "selection": "summary_matrix",
+                }
+            )
     print(json.dumps({"selected_run_manifest": manifest}, indent=2))
     return manifest
 
 
-def _model_from_run(run_dir: Path) -> tuple[torch.nn.Module, str]:
-    metadata = json.loads(
-        (run_dir / "checkpoint_metadata.json").read_text(encoding="utf-8")
-    )
-    stored = metadata["model"]
-    model_name = str(stored["name"])
-    model_keys = (
-        {
-            "in_channels",
-            "width",
-            "backbone_output_channels",
-            "embedding_dim",
-            "stage_depths",
-            "stem_stride",
-            "reparameterize_depthwise",
-            "dropout",
-            "classification_head",
-            "logit_scale",
-            "angular_margin",
-        }
-        if model_name == "efficient_hccr"
-        else {
-            "in_channels",
-            "classification_head",
-            "embedding_dim",
-            "logit_scale",
-            "angular_margin",
-        }
-    )
-    kwargs = {key: stored[key] for key in model_keys if key in stored}
-    if "stage_depths" in kwargs:
-        kwargs["stage_depths"] = tuple(kwargs["stage_depths"])
-    model = build_model(model_name, num_classes=int(stored["num_classes"]), **kwargs)
-    return model, model_name
+def _shared_preprocess(manifest: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    if not manifest:
+        raise ValueError("benchmark run manifest is empty")
+    expected = dict(manifest[0]["preprocess"])
+    mismatched = [
+        item["run_id"]
+        for item in manifest[1:]
+        if dict(item["preprocess"]) != expected
+    ]
+    if mismatched:
+        raise ValueError(
+            "all CPU benchmark runs must share preprocessing; mismatched runs: "
+            + ", ".join(mismatched)
+        )
+    return expected
 
 
 def _write_report(output: Path, report: dict[str, Any]) -> None:
@@ -302,11 +353,46 @@ def _write_report(output: Path, report: dict[str, Any]) -> None:
     summary_rows = []
     for model in sorted({r["model_name"] for r in report["results"]}):
         vals = [r for r in report["results"] if r["model_name"] == model]
-        def metric(key): return [statistics.median(x[key] for x in v["repeat_summaries"]) for v in vals]
-        means, p50s, p95s = metric("latency_mean_ms"), metric("latency_p50_ms"), metric("latency_p95_ms")
-        summary_rows.append({"model": model, "seeds": "7,17,29", "mean_latency_mean_ms": statistics.mean(means), "mean_latency_std_ms": statistics.stdev(means), "p50_mean_ms": statistics.mean(p50s), "p50_std_ms": statistics.stdev(p50s), "p95_mean_ms": statistics.mean(p95s), "p95_std_ms": statistics.stdev(p95s)})
-    with output.with_name(output.stem + "_summary.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=summary_rows[0].keys()); writer.writeheader(); writer.writerows(summary_rows)
+
+        def metric(records: list[dict[str, Any]], key: str) -> list[float]:
+            return [
+                statistics.median(
+                    repetition[key] for repetition in value["repeat_summaries"]
+                )
+                for value in records
+            ]
+
+        means = metric(vals, "latency_mean_ms")
+        p50s = metric(vals, "latency_p50_ms")
+        p95s = metric(vals, "latency_p95_ms")
+        summary_rows.append(
+            {
+                "model": model,
+                "seeds": ",".join(
+                    str(seed)
+                    for seed in sorted(
+                        value["seed"]
+                        for value in vals
+                        if value.get("seed") is not None
+                    )
+                ),
+                "mean_latency_mean_ms": statistics.mean(means),
+                "mean_latency_std_ms": _sample_std(means),
+                "p50_mean_ms": statistics.mean(p50s),
+                "p50_std_ms": _sample_std(p50s),
+                "p95_mean_ms": statistics.mean(p95s),
+                "p95_std_ms": _sample_std(p95s),
+            }
+        )
+    summary_path = output.with_name(output.stem + "_summary.csv")
+    with summary_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=summary_rows[0].keys())
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+
+def _sample_std(values: Sequence[float]) -> float:
+    return statistics.stdev(values) if len(values) > 1 else 0.0
 
 
 if __name__ == "__main__":

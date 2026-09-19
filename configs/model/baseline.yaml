@@ -1,6 +1,17 @@
+# Architecture-only mirror of the paper's single-branch EfficientHCCR control.
+# The executable training protocol remains
+# configs/experiment/thesis_model_comparison.yaml; keep this preset aligned with
+# its efficient_hccr_20260822T224249Z_c43e969f variant and checkpoint metadata.
 name: efficient_hccr
 num_classes: 7186
 in_channels: 1
-width: 32
-stage_depths: [1, 2, 2]
+width: 80
+backbone_output_channels: 320
+embedding_dim: 320
+stage_depths: [2, 3, 3]
+stem_stride: 2
+reparameterize_depthwise: false
+classification_head: cosface
+logit_scale: 32.0
+angular_margin: 0.1
 dropout: 0.1

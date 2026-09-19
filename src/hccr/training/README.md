@@ -27,6 +27,7 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | `artifacts.py` | Checkpoints, metadata, digests, and recalibrated variants. |
 | `diagnostics.py` | Complexity, latency, BatchNorm, stability, activation, and gradient diagnostics. |
 | `precision.py` | AMP policy, autocast context, FP16 gradient scaling, and run metadata. |
+| `summary.py` | Canonical experiment-summary columns and lossless profile migration. |
 
 ## Minimal Python usage
 
@@ -130,3 +131,22 @@ Paper screening runs should use `validation_only` and `reproducibility_mode="str
 Run `final_test` only after architecture and hyperparameters are frozen. Run
 metadata records deterministic flags, key package/runtime versions, the full
 Git commit, dirty state, and a working-tree content digest.
+
+## Paper evidence contract
+
+For a paper run, preserve the complete run directory rather than copying only
+the checkpoint. The minimum auditable chain is:
+
+| Evidence | Reviewer verifies |
+| --- | --- |
+| `config.json` and `batch_training_plan.json` | Requested and resolved epochs, optimizer steps, learning rate, batch size, world size, precision, and seed. |
+| `metadata.json` | Git commit/dirty digest, runtime versions, device, reproducibility flags, and manifest digest. |
+| `checkpoint_metadata.json` and `labels.json` | Exact architecture and output-index mapping used to load the checkpoint. |
+| `metrics.json` | Validation-based selection and, only under `final_test`, the one-time held-out test result. |
+| `resource_profile.json` | Complexity convention, eager/optimized equivalence, hardware, and timing protocol. |
+
+A workflow refactor is behavior-preserving only if a fixed smoke run retains
+the same resolved plan, split membership, model state structure, metric schema,
+and benchmark schema. Random training need not be bit-identical across different
+hardware/software stacks, so reviewers should compare recorded conditions and
+multi-seed distributions rather than a single unqualified scalar.

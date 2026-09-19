@@ -20,10 +20,9 @@ from torch.utils.data import DataLoader
 from hccr.data.dataset import HCCRDataset, select_class_subset
 from hccr.data.manifest import read_manifest
 from hccr.evaluation.evaluator import evaluate
-from hccr.experiment_runner import _model_from_run
+from hccr.models import load_model_from_run
 from hccr.preprocessing import EvalPreprocessor
 from hccr.training.precision import resolve_precision
-
 
 METRICS = (
     "top1",
@@ -107,7 +106,11 @@ def evaluate_run(arguments: argparse.Namespace, run_id: str) -> dict:
     checkpoint = run_dir / "checkpoint.pt"
     config_path = run_dir / "config.json"
     metadata_path = run_dir / "checkpoint_metadata.json"
-    if not checkpoint.is_file() or not config_path.is_file() or not metadata_path.is_file():
+    if (
+        not checkpoint.is_file()
+        or not config_path.is_file()
+        or not metadata_path.is_file()
+    ):
         raise FileNotFoundError(f"missing completed-run artifact for {run_id}")
     config = json.loads(config_path.read_text(encoding="utf-8"))
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -118,7 +121,7 @@ def evaluate_run(arguments: argparse.Namespace, run_id: str) -> dict:
     loader = evaluation_loader(
         manifest, config, arguments.num_workers, arguments.batch_size
     )
-    model = _model_from_run(run_dir, arguments.device)
+    model = load_model_from_run(run_dir, arguments.device)
     requested_precision = str(metadata["training"]["precision"]["requested"])
     precision = resolve_precision(requested_precision, arguments.device)
     metrics = evaluate(
@@ -185,7 +188,9 @@ def summarize(output_root: Path) -> dict:
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"
     )
     with (output_root / "summary.csv").open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=("variant", "metric", "mean", "std", "n"))
+        writer = csv.DictWriter(
+            file, fieldnames=("variant", "metric", "mean", "std", "n")
+        )
         writer.writeheader()
         for variant, aggregate in summary["variants"].items():
             for metric, values in aggregate["metrics"].items():

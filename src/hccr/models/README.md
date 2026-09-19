@@ -11,6 +11,8 @@ adapters—are not part of the proposed-model API.
 | --- | --- |
 | `EfficientHCCRNet` | Three-stage depthwise-separable CNN for one-channel character images. |
 | `build_model(name, **kwargs)` | Factory accepting `efficient_hccr`, `resnet18`, `mobilenet_v3_small`, `shufflenet_v2_x1_0`, or `efficientnet_b0`. |
+| `load_model_from_run(run_dir, ...)` | Reconstruct and strictly load a checkpoint from its stored model metadata. |
+| `build_model_from_metadata(metadata, ...)` | Build an artifact-declared architecture without loading weights. |
 | `optimize_model_for_inference(model)` | Return a frozen eval copy with safe inference transformations. |
 
 Internal building blocks in `efficient_hccr.py` are:
@@ -121,3 +123,22 @@ Always verify optimized/eager logit equivalence on the target device. The
 training resource profile performs this check and records both benchmark sets.
 Compare model candidates using validation accuracy and matched batch-1 p95
 latency, not parameter count alone.
+
+## Checkpoint reconstruction for reviewers
+
+Reconstruct a reported model from `checkpoint_metadata.json`, not from current
+constructor or CLI defaults. The metadata fixes the model name, class count,
+width/depth, stem stride, optional backbone and embedding dimensions,
+reparameterization flag, dropout, classification head, logit scale, and angular
+margin. Load `checkpoint.pt` only after building that exact structure, and use
+the run's `labels.json` without re-sorting it.
+
+Refactoring the factory or exposing a public artifact loader is paper-neutral
+only when all retained checkpoints load strictly and produce equivalent eager
+logits. Optimized models are derived deployment artifacts: verify their logits
+against the eager checkpoint on the target device and report their latency in a
+separate optimized condition.
+
+Repository scripts use `load_model_from_run` rather than importing private
+experiment-runner helpers. A class-count override loads only compatible
+non-classifier weights and fails if any backbone key changes.

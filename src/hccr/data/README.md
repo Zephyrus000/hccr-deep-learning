@@ -104,3 +104,18 @@ v2's optimized `to_image`/`to_dtype` path.
 For comparable subset experiments, keep `max_classes` and the subset seed
 identical across every candidate. Persist the returned mapping with the run so
 model output indices can always be mapped back to original classes.
+
+## Reviewer checks
+
+The manifest is part of the experimental evidence, not disposable cache. Keep
+the generated `manifest.csv`, `labels.json`, `audit_report.json`, and
+`invalid_images.json` with the reproduction record. Before comparing runs,
+verify that `metadata.json` contains the same manifest SHA-256 and that each
+run's `labels.json` has the same class ordering.
+
+The current folder export lacks usable writer IDs. Its deterministic 10%
+validation partition is therefore image-level and artifacts correctly record
+writer separation as `not_verifiable`. Do not describe this export as a
+writer-disjoint protocol. LMDB changes storage only: it must preserve the
+manifest digest and original encoded image bytes, so filesystem and LMDB
+backends should produce the same sample tensors and targets.

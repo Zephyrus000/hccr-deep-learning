@@ -16,10 +16,39 @@ class BootstrapTests(unittest.TestCase):
     def test_default_config_is_loadable(self) -> None:
         config = load_yaml(Path("configs/data/default.yaml"))
         data = DataConfig(**config)
-        self.assertEqual(data.image_size, 64)
+        self.assertEqual(data.image_size, 96)
         model = ModelConfig()
         self.assertEqual(model.name, "efficient_hccr")
         self.assertEqual(model.num_classes, 7186)
+
+    def test_model_baseline_matches_paper_single_branch_control(self) -> None:
+        baseline = load_yaml(Path("configs/model/baseline.yaml"))
+        experiment = load_yaml(
+            Path("configs/experiment/thesis_model_comparison.yaml")
+        )
+        variant = next(
+            item
+            for item in experiment["variants"]
+            if item["name"] == "efficient_hccr_20260822T224249Z_c43e969f"
+        )
+        resolved = {**experiment["base_args"], **variant["args"]}
+
+        shared_keys = (
+            "num_classes",
+            "width",
+            "stage_depths",
+            "stem_stride",
+            "reparameterize_depthwise",
+            "classification_head",
+            "logit_scale",
+            "angular_margin",
+            "dropout",
+        )
+        self.assertEqual(baseline["name"], resolved["model"])
+        for key in shared_keys:
+            self.assertEqual(baseline[key], resolved[key], key)
+        self.assertEqual(baseline["backbone_output_channels"], 320)
+        self.assertEqual(baseline["embedding_dim"], 320)
 
     def test_cli_scaffold_accepts_predict(self) -> None:
         self.assertEqual(main(["predict"]), 0)

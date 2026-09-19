@@ -100,6 +100,95 @@ hccr --version
 hccr --help
 ```
 
+## Reproducing the paper experiments
+
+The checked-in experiment YAML files are the executable source of truth for
+the paper protocol. Do not reconstruct a paper run from CLI defaults: defaults
+may evolve while a YAML file fixes the model, optimizer, data policy, hardware,
+precision, seeds, and benchmark counts used by that experiment.
+
+| Paper evidence | Configuration | Intended use |
+| --- | --- | --- |
+| Main full-class comparison | [`configs/experiment/thesis_model_comparison.yaml`](configs/experiment/thesis_model_comparison.yaml) | Six architectures, seeds 7/17/29, 7,186 classes, strict reproducibility, BF16 on one A100-SXM4-40GB GPU per run, and one final-test evaluation per run. |
+| Common-classifier fairness check | [`configs/experiment/thesis_common_embedding_320.yaml`](configs/experiment/thesis_common_embedding_320.yaml) | Four baselines with a shared 320-dimensional CosFace classifier, seed 7, on one RTX 4090. Its latency is intentionally excluded from the hardware-matched main comparison. |
+
+From a clean checkout, record the commit and environment before running:
+
+```bash
+git rev-parse HEAD
+python --version
+python -m pip freeze > ../hccr-environment.freeze.txt
+```
+
+Keep the full freeze beside the reproduction bundle, outside the checkout, so
+capturing it does not make an otherwise clean working tree dirty.
+
+Build the manifest and LMDB exactly once as described below. Preserve
+`manifest.csv`, `audit_report.json`, and the manifest SHA-256 recorded in every
+run's `metadata.json`; all compared runs must use the same digest. Validate the
+main matrix without allocating GPUs, then resume the materialized sweep on the
+declared hardware:
+
+```bash
+python scripts/run_experiments.py \
+  --config configs/experiment/thesis_model_comparison.yaml \
+  --dry-run
+
+python scripts/run_experiments.py \
+  --config configs/experiment/thesis_model_comparison.yaml \
+  --resume \
+  --show-output
+```
+
+The dry run writes the expanded command matrix to
+`experiments/sweeps/<experiment-id>/plan.json`. The real run writes resumable
+state to `status.json` and aggregate, seed-level evidence to `summary.json`.
+Treat a paper table as reproducible only when `summary.json` reports
+`status: completed`, every planned seed is present, and the referenced run
+directories retain their original `config.json`, `metadata.json`,
+`checkpoint_metadata.json`, `metrics.json`, and `resource_profile.json`.
+
+Normalize historical and current schemas into a new immutable evidence bundle:
+
+```bash
+python scripts/build_evidence_bundle.py \
+  --experiments experiments \
+  --derived-root artifacts/experiments_20260915/profiling-20260918-rtx3060 \
+  --derived-root artifacts/experiments_20260915/profiling-20260918-rtx3060-multi-branch \
+  --derived-root artifacts/experiments_20260915/profiling-20260919-rtx3060-all-runs \
+  --output artifacts/paper-evidence-v1-full
+
+python scripts/build_evidence_bundle.py \
+  --validate artifacts/paper-evidence-v1-full
+```
+
+The bundle copies reviewer-facing raw artifacts without modifying their bytes,
+records their SHA-256 hashes, stores checkpoint hashes without duplicating the
+weights, and creates one canonical `run_evidence.json` per run. Repeated
+`--derived-root` options keep post-hoc profiling collections separate from the
+original runs while normalizing their resource profiles to the same view.
+Legacy fields that were never measured remain `null` with an explicit
+availability status.
+
+Reviewer checklist:
+
+1. Confirm the Git commit and that run metadata reports the expected working-tree
+   digest; do not mix artifacts from different dirty states.
+2. Confirm one manifest digest, class count, image size, seed set, precision,
+   effective global batch size, and evaluation policy across compared variants.
+3. Use validation metrics for ablation/selection and the held-out test metrics
+   only for the frozen final comparison.
+4. Compare latency only on the same host, thread count, precision, execution
+   mode, input shape, warm-up/timed iterations, repetitions, and timing scope.
+5. Report eager and optimized latency separately, and keep MACs distinct from
+   FLOPs according to the convention stored in `resource_profile.json`.
+
+Code organization may be refactored without rerunning the paper only when this
+protocol and the serialized artifacts are byte-for-byte or numerically
+equivalent. Changes to model reconstruction, data selection, preprocessing,
+checkpoint selection, metric definitions, or benchmark timing require targeted
+equivalence tests and regeneration of any affected paper result.
+
 ## Dataset preparation
 
 The manifest builder expects one directory per Unicode label:
@@ -314,7 +403,7 @@ Validate an experiment matrix without starting training:
 
 ```bash
 python scripts/run_experiments.py \
-  --config configs/experiment/ablations.yaml \
+  --config configs/experiment/thesis_model_comparison.yaml \
   --dry-run
 ```
 
@@ -392,27 +481,34 @@ classifier may cache its normalized weight after `eval()` in both modes.
 `python scripts/benchmark_inference.py` remains available as a compatibility
 wrapper around the same command implementation.
 
-To compare multiple completed runs on a specific CPU host using a fixed sample
-from the LMDB dataset:
+To reproduce the paper's specialized CPU study on a specific host, use the
+fixed model/seed matrix selected from `experiment_summary.csv` and one LMDB
+sample:
 
 ```bash
 python scripts/benchmark_cpu_lmdb.py \
   --mode eager \
-  --runs experiments/<run-a> experiments/<run-b> \
+  --summary experiments/experiment_summary.csv \
+  --experiments experiments \
   --threads 1 \
   --warmup 100 \
   --iterations 3000 \
-  --repetitions 5
+  --repetitions 5 \
+  --output experiments/cpu_lmdb_inference_benchmark
 ```
 
-Run this specialized script independently on each target CPU. Its JSON output
-uses the same versioned timing keys and benchmark protocol as the general
-benchmark command; its CSV output is a scalar summary suitable for comparison.
+The summary must contain exactly one eligible row for every required
+model/seed pair; the script fails rather than choosing ambiguously. Run eager
+and optimized modes as separate invocations and never merge them into one paper
+column. Execute the script independently on each target CPU. Its JSON report is
+the canonical evidence because it preserves the selected run manifest,
+execution order, hardware/software metadata, protocol, and per-repetition
+timings. The CSV files are derived tables for analysis.
 
 ## Repository layout
 
 ```text
-configs/              Data, model, baseline, and ablation configuration
+configs/              Data and executable paper-experiment configuration
 scripts/              Dataset, sweep, and inference benchmark entry points
 src/hccr/             Installable Python package
 ├── benchmarking/     Shared benchmark schemas and timing summaries

@@ -17,7 +17,7 @@ import torch
 
 from hccr.cli import build_parser as build_hccr_parser
 from hccr.config.loader import load_yaml
-from hccr.models import build_model
+from hccr.models import load_model_from_run
 from hccr.preprocessing import EvalPreprocessor
 from hccr.training.diagnostics import profile_model
 from hccr.utils.experiment import write_json
@@ -376,7 +376,7 @@ def _profile_run(
             profiles[device] = {"status": "skipped", "reason": "CUDA unavailable"}
             continue
         destination = experiment_dir / "profiles" / job.variant / f"seed-{job.seed}"
-        trained_model = _model_from_run(run_dir, device)
+        trained_model = load_model_from_run(run_dir, device)
         trained_profile = profile_model(
             trained_model,
             image_size,
@@ -391,7 +391,9 @@ def _profile_run(
         device_profiles = {"status": "completed", "trained_head": trained_profile}
         del trained_model
         if spec.full_class_num_classes is not None:
-            full_model = _model_from_run(run_dir, device, spec.full_class_num_classes)
+            full_model = load_model_from_run(
+                run_dir, device, spec.full_class_num_classes
+            )
             device_profiles["full_class_head"] = profile_model(
                 full_model,
                 image_size,
@@ -408,58 +410,6 @@ def _profile_run(
         if device == "cuda":
             torch.cuda.empty_cache()
     return profiles
-
-
-def _model_from_run(
-    run_dir: Path, device: str, num_classes_override: int | None = None
-) -> torch.nn.Module:
-    metadata = _read_json(run_dir / "checkpoint_metadata.json")
-    stored = metadata["model"]
-    model_name = str(stored["name"])
-    model_keys = (
-        {
-            "in_channels",
-            "width",
-            "backbone_output_channels",
-            "embedding_dim",
-            "stage_depths",
-            "stem_stride",
-            "reparameterize_depthwise",
-            "dropout",
-            "classification_head",
-            "logit_scale",
-            "angular_margin",
-        }
-        if model_name == "efficient_hccr"
-        else {
-            "in_channels",
-            "classification_head",
-            "embedding_dim",
-            "logit_scale",
-            "angular_margin",
-        }
-    )
-    kwargs = {key: stored[key] for key in model_keys if key in stored}
-    for tuple_key in ("stage_depths",):
-        if tuple_key in kwargs:
-            kwargs[tuple_key] = tuple(kwargs[tuple_key])
-    target_classes = num_classes_override or int(stored["num_classes"])
-    model = build_model(model_name, num_classes=target_classes, **kwargs)
-    state = torch.load(run_dir / "checkpoint.pt", map_location="cpu", weights_only=True)
-    if target_classes == int(stored["num_classes"]):
-        model.load_state_dict(state)
-    else:
-        backbone_state = {
-            name: value
-            for name, value in state.items()
-            if not name.startswith("classifier.")
-        }
-        incompatible = model.load_state_dict(backbone_state, strict=False)
-        if incompatible.unexpected_keys or any(
-            not key.startswith("classifier.") for key in incompatible.missing_keys
-        ):
-            raise RuntimeError("full-class model reconstruction changed backbone keys")
-    return model.to(device)
 
 
 def _summarize(

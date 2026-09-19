@@ -1,33 +1,36 @@
-# Controlled full-class comparison: 8 architectures x 3 seeds = 24 runs.
+# Controlled full-class comparison: 6 architectures x 3 seeds = 18 runs.
 # Every job shares the same manifest, preprocessing/augmentation, CosFace head,
-# optimizer budget, BF16 DDP setup, and eager/optimized inference protocol.
-experiment_id: thesis-model-comparison-cosface-a100
+# optimizer budget, single-A100 BF16 setup, and inference protocol. This file
+# mirrors the completed run metadata used by the paper; it is not the earlier
+# failed two-GPU DDP plan retained under experiments/sweeps/ for provenance.
+# Use a new sweep ID so reproduction cannot overwrite the retained failed DDP
+# plan that used the older thesis-model-comparison-cosface-a100 identifier.
+experiment_id: thesis-model-comparison-paper-single-a100-v1
 manifest: data/processed/casia_hwdb/manifest.csv
 output_dir: experiments
 seeds: [7, 17, 29]
 profile_devices: [cuda]
 full_class_num_classes: 7186
 
-# Fail fast on the real run if the requested two-GPU A100 node is not visible.
-# Dry-run only validates and materializes the 24 commands, so it remains usable
+# Fail fast on the real run if the requested A100 is not visible. Dry-run only
+# validates and materializes the 18 commands, so it remains usable
 # on a development machine without CUDA.
-torchrun_nproc_per_node: 2
-required_cuda_device_count: 2
+required_cuda_device_count: 1
 required_cuda_device_name: A100-SXM4-40GB
 
 base_args:
   model: efficient_hccr
   device: cuda
   precision: bfloat16
-  distributed: true
+  distributed: false
   dataset_backend: lmdb
   evaluation_policy: final_test
   reproducibility_mode: strict
   num_classes: 7186
   image_size: 96
 
-  # batch_size and num_workers are per GPU/rank: 256 x 2 = Global Batch 512,
-  # with 12 DataLoader workers on each GPU.
+  # The completed paper runs used global batch 256 on one GPU. Most models used
+  # 12 workers; ShuffleNet used 6 to remain below the host RAM limit.
   batch_size: 256
   reference_batch_size: 256
   optimizer_step_policy: configured_epochs
@@ -80,6 +83,7 @@ variants:
   - name: shufflenet_v2_x1_0_cosface
     args:
       model: shufflenet_v2_x1_0
+      num_workers: 6
 
   # Architecture from 20260822T224249Z-c43e969f: single branch and native
   # width*4 = 320 backbone/embedding dimensions. Training/runtime settings are
@@ -88,20 +92,8 @@ variants:
     args:
       reparameterize_depthwise: false
 
-  - name: efficient_hccr_multibranch_embed256_backbone320
-    args:
-      reparameterize_depthwise: true
-      backbone_output_channels: 320
-      embedding_dim: 256
-
   # Turns off both explicit projection knobs. With width=80, the native final
   # feature width and embedding dimension are both 320.
   - name: efficient_hccr_multibranch_native320
     args:
       reparameterize_depthwise: true
-
-  - name: efficient_hccr_singlebranch_embed256_backbone320
-    args:
-      reparameterize_depthwise: false
-      backbone_output_channels: 320
-      embedding_dim: 256

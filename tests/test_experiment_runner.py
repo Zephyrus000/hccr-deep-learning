@@ -10,7 +10,6 @@ import torch
 
 from hccr.experiment_runner import (
     _distribution,
-    _model_from_run,
     _paired_metric_delta,
     _summarize,
     _validate_hardware_requirements,
@@ -19,7 +18,7 @@ from hccr.experiment_runner import (
     load_experiment_spec,
     run_experiments,
 )
-from hccr.models import EfficientHCCRNet, build_model
+from hccr.models import EfficientHCCRNet, build_model, load_model_from_run
 
 
 class ExperimentRunnerTests(unittest.TestCase):
@@ -75,21 +74,6 @@ class ExperimentRunnerTests(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        legacy_arguments = build_parser().parse_args(
-            ["--config", str(root / "configs/experiment/baseline.yaml")]
-        )
-        legacy_jobs = build_jobs(load_experiment_spec(legacy_arguments, root))
-        self.assertEqual(
-            [job.key for job in legacy_jobs],
-            [
-                "legacy_efficient_hccr/seed-7",
-                "legacy_efficient_hccr/seed-17",
-                "legacy_efficient_hccr/seed-29",
-            ],
-        )
-        self.assertIn("--no-reparameterize-depthwise", legacy_jobs[0].command)
-        self.assertIn("bfloat16", legacy_jobs[0].command)
-
         arguments = build_parser().parse_args(
             ["--config", str(root / "configs/experiment/thesis_model_comparison.yaml")]
         )
@@ -102,9 +86,7 @@ class ExperimentRunnerTests(unittest.TestCase):
             "efficientnet_b0_cosface",
             "shufflenet_v2_x1_0_cosface",
             "efficient_hccr_20260822T224249Z_c43e969f",
-            "efficient_hccr_multibranch_embed256_backbone320",
             "efficient_hccr_multibranch_native320",
-            "efficient_hccr_singlebranch_embed256_backbone320",
         ]
         self.assertEqual(
             list(commands),
@@ -114,10 +96,10 @@ class ExperimentRunnerTests(unittest.TestCase):
                 for seed in (7, 17, 29)
             ],
         )
-        self.assertEqual(len(jobs), 24)
-        self.assertEqual(spec.required_cuda_device_count, 2)
+        self.assertEqual(len(jobs), 18)
+        self.assertEqual(spec.required_cuda_device_count, 1)
         self.assertEqual(spec.required_cuda_device_name, "A100-SXM4-40GB")
-        new_command = commands["efficient_hccr_multibranch_embed256_backbone320/seed-7"]
+        new_command = commands["efficient_hccr_multibranch_native320/seed-7"]
         self.assertIn("efficient_hccr", new_command)
         self.assertEqual(new_command[new_command.index("--image-size") + 1], "96")
         self.assertEqual(new_command[new_command.index("--batch-size") + 1], "256")
@@ -131,13 +113,9 @@ class ExperimentRunnerTests(unittest.TestCase):
             ],
             ("2", "3", "3"),
         )
-        self.assertEqual(
-            new_command[new_command.index("--backbone-output-channels") + 1], "320"
-        )
-        self.assertEqual(new_command[new_command.index("--embedding-dim") + 1], "256")
         self.assertEqual(new_command[new_command.index("--num-workers") + 1], "12")
         self.assertIn("bfloat16", new_command)
-        self.assertIn("--distributed", new_command)
+        self.assertNotIn("--distributed", new_command)
         self.assertIn("--reparameterize-depthwise", new_command)
         self.assertIn("cosface", new_command)
         for variant, model_name in (
@@ -151,8 +129,10 @@ class ExperimentRunnerTests(unittest.TestCase):
             self.assertIn("cosface", command)
         self.assertIn(
             "--no-reparameterize-depthwise",
-            commands["efficient_hccr_singlebranch_embed256_backbone320/seed-7"],
+            commands["efficient_hccr_20260822T224249Z_c43e969f/seed-7"],
         )
+        shufflenet = commands["shufflenet_v2_x1_0_cosface/seed-7"]
+        self.assertEqual(shufflenet[shufflenet.index("--num-workers") + 1], "6")
         native_command = commands["efficient_hccr_multibranch_native320/seed-7"]
         self.assertNotIn("--backbone-output-channels", native_command)
         self.assertNotIn("--embedding-dim", native_command)
@@ -164,12 +144,12 @@ class ExperimentRunnerTests(unittest.TestCase):
         )
         spec = load_experiment_spec(arguments, root)
         with (
-            patch("torch.cuda.device_count", return_value=1),
-            self.assertRaisesRegex(RuntimeError, "requires 2 CUDA devices"),
+            patch("torch.cuda.device_count", return_value=0),
+            self.assertRaisesRegex(RuntimeError, "requires 1 CUDA devices"),
         ):
             _validate_hardware_requirements(spec)
         with (
-            patch("torch.cuda.device_count", return_value=2),
+            patch("torch.cuda.device_count", return_value=1),
             patch("torch.cuda.get_device_name", return_value="NVIDIA RTX 4090"),
             self.assertRaisesRegex(RuntimeError, "A100-SXM4-40GB"),
         ):
@@ -195,8 +175,10 @@ class ExperimentRunnerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            restored = _model_from_run(run_dir, "cpu").eval()
-            full_head = _model_from_run(run_dir, "cpu", num_classes_override=100)
+            restored = load_model_from_run(run_dir, "cpu").eval()
+            full_head = load_model_from_run(
+                run_dir, "cpu", num_classes_override=100
+            )
 
         self.assertEqual(restored.classifier[-1].out_features, 11)
         self.assertEqual(full_head.classifier[-1].out_features, 100)
@@ -229,7 +211,7 @@ class ExperimentRunnerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            restored = _model_from_run(run_dir, "cpu").eval()
+            restored = load_model_from_run(run_dir, "cpu").eval()
 
         self.assertEqual(restored.classification_head, "cosface")
         self.assertEqual(restored.classifier.scale, 16.0)
@@ -262,8 +244,10 @@ class ExperimentRunnerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            restored = _model_from_run(run_dir, "cpu").eval()
-            full_head = _model_from_run(run_dir, "cpu", num_classes_override=100)
+            restored = load_model_from_run(run_dir, "cpu").eval()
+            full_head = load_model_from_run(
+                run_dir, "cpu", num_classes_override=100
+            )
 
         self.assertEqual(restored.embedding_projection.in_features, 576)
         self.assertEqual(restored.embedding_projection.out_features, 320)
@@ -305,8 +289,10 @@ class ExperimentRunnerTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            restored = _model_from_run(run_dir, "cpu").eval()
-            full_head = _model_from_run(run_dir, "cpu", num_classes_override=100)
+            restored = load_model_from_run(run_dir, "cpu").eval()
+            full_head = load_model_from_run(
+                run_dir, "cpu", num_classes_override=100
+            )
 
         self.assertEqual(restored.backbone_output_channels, 40)
         self.assertEqual(restored.embedding_dim, 12)

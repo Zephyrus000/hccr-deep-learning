@@ -49,3 +49,18 @@ Support tiers are derived from active training support: the bottom 20% of
 classes are `tail`, the top 20% are `head`, and the remainder are `mid`, with
 class ID used for deterministic tie-breaking. Avoid rendering a dense full
 7,186-class confusion matrix; use the ranked pair and per-class artifacts.
+
+## Paper reporting contract
+
+Architecture choices, scheduling, early stopping, BatchNorm-variant selection,
+and ablations use validation only. The test loader is not constructed under
+`validation_only`; `final_test` evaluates the already selected checkpoint once.
+Paper tables must label the split and must not substitute the best test result
+across epochs, seeds, or checkpoint variants.
+
+For each reported aggregate, retain seed-level `metrics.json` files and the
+sweep `summary.json`. Report the mean and sample variation over the declared
+seeds, and keep top-1, top-5, macro recall, tail recall, and calibration metrics
+under their stored definitions. A refactor that changes class support tiers,
+aggregation, tie-breaking, or test access changes the paper protocol and
+requires recomputing affected tables.

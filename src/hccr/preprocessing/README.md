@@ -58,3 +58,17 @@ inference.
 Polarity switching, Otsu/median filtering, morphology, elastic deformation,
 centroid centering, and Sobel/Gabor channels are not supported by the retained
 pipeline.
+
+## Paper protocol
+
+Paper runs use the image size fixed in their experiment YAML and the default
+`margin=4`. Validation, final test, diagnostics, inference, and end-to-end
+profiling must all use the same `EvalPreprocessor`; random augmentation is
+train-only. Changing the foreground threshold, crop, interpolation, margin,
+padding, image size, or tensor scaling changes the experimental method and
+requires rerunning affected accuracy and end-to-end latency results.
+
+For a behavior-preserving refactor, compare deterministic evaluation outputs
+pixel-for-pixel on representative blank, narrow-stroke, edge-touching, and
+non-square inputs, and verify train augmentation remains reproducible under the
+recorded seed.
