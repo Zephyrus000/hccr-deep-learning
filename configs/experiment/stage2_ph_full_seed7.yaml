@@ -1,0 +1,23 @@
+# Full-class frozen-backbone PH study, independent of the from-scratch loss study.
+run_dir: experiments/20260913T114748Z-d2e5e0a9
+manifest: data/processed/casia_hwdb/manifest.csv
+output_dir: artifacts/casia-lmdb-full-loss-ph-seed7-20261019/ph
+seed: 7
+seeds: [7]
+class_subset_seed: 7
+max_classes: 7186
+device: cuda
+dataset_backend: lmdb
+batch_size: 256
+num_workers: 4
+projection_epochs: 20
+projection_learning_rate: 3.0e-4
+projection_weight_decay: 1.0e-4
+calibration_samples: 4096
+head_epochs: 8
+head_batch_size: 2048
+head_learning_rate: 0.001
+head_weight_decay: 0.0001
+precision: float32
+alpha_grid: [0.25, 0.5, 1.0, 2.0]
+variants: [original, cnn, gap, flat, statistics, h0, h0_h1, mean_h0_h1]

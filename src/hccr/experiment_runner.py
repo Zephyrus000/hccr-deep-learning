@@ -793,6 +793,10 @@ def _load_run_result(path: Path) -> dict[str, Any]:
         test_metrics = test.get("metrics") if isinstance(test, dict) else None
         if test_metrics is not None and not isinstance(test_metrics, dict):
             raise ValueError(f"invalid test.metrics object in {path}")
+        icdar = payload.get("icdar")
+        icdar_metrics = icdar.get("metrics") if isinstance(icdar, dict) else None
+        if icdar_metrics is not None and not isinstance(icdar_metrics, dict):
+            raise ValueError(f"invalid icdar.metrics object in {path}")
         selected = validation.get("selected", validation["best"])
         if not isinstance(selected, dict):
             raise ValueError(f"invalid validation.selected object in {path}")
@@ -802,6 +806,10 @@ def _load_run_result(path: Path) -> dict[str, Any]:
             "selection_metrics": selected,
             "test_status": test_status,
             "test_metrics": test_metrics,
+            "icdar_status": (
+                icdar.get("status", "not_run") if isinstance(icdar, dict) else "not_run"
+            ),
+            "icdar_metrics": icdar_metrics,
         }
     legacy = payload.get("best")
     if isinstance(legacy, dict):

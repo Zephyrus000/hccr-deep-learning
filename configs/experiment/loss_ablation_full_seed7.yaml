@@ -1,0 +1,59 @@
+# Full-class, from-scratch loss study. No CosFace control in this queue.
+experiment_id: casia-lmdb-full-loss-seed7-20261019
+manifest: data/processed/casia_hwdb/manifest.csv
+output_dir: experiments/casia-lmdb-full-loss-seed7-20261019
+seeds: [7]
+profile_devices: [cuda]
+full_class_num_classes: 7186
+required_cuda_device_count: 1
+required_cuda_device_name: RTX 3060
+base_args:
+  model: efficient_hccr
+  device: cuda
+  precision: auto
+  distributed: false
+  dataset_backend: lmdb
+  evaluation_policy: final_test
+  reproducibility_mode: strict
+  num_classes: 7186
+  max_classes: 7186
+  class_subset_seed: 7
+  image_size: 96
+  width: 80
+  stage_depths: [2, 3, 3]
+  stem_stride: 2
+  backbone_output_channels: 320
+  embedding_dim: 320
+  reparameterize_depthwise: false
+  dropout: 0.1
+  batch_size: 64
+  reference_batch_size: 64
+  optimizer_step_policy: configured_epochs
+  learning_rate_scaling: none
+  epochs: 20
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  lr_warmup_ratio: 0.0
+  scheduler: cosine
+  scheduler_min_lr: 1.0e-6
+  early_stopping_patience: 0
+  label_smoothing: 0.0
+  logit_scale: 32.0
+  margin_warmup_ratio: 0.2
+  num_workers: 4
+  dataloader_start_method: spawn
+  prefetch_factor: 1
+  persistent_workers: true
+  benchmark_warmup_iterations: 5
+  benchmark_iterations: 20
+  benchmark_repetitions: 2
+variants:
+  - name: cross_entropy
+    args:
+      classification_head: softmax
+      angular_margin: 0.0
+      margin_warmup_ratio: 0.0
+  - name: arcface
+    args:
+      classification_head: arcface
+      angular_margin: 0.1

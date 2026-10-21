@@ -17,7 +17,7 @@ import torch
 from torch.utils.data import DataLoader, DistributedSampler, Subset
 
 from hccr.data.dataset import HCCRDataset, select_class_subset
-from hccr.data.manifest import read_manifest, writer_provenance
+from hccr.data.manifest import read_manifest, validate_training_manifest
 from hccr.evaluation.evaluator import evaluate
 from hccr.evaluation.reports import save_learning_curves
 from hccr.models import MODEL_NAMES, build_model
@@ -151,7 +151,7 @@ def _run_training(
     reproducibility = _configure_reproducibility(config, distributed.rank)
     device = distributed.device
     manifest_rows = read_manifest(config.manifest_path)
-    writer_info = writer_provenance(manifest_rows)
+    writer_info = validate_training_manifest(config.manifest_path, manifest_rows)
     run_id = distributed.broadcast_object(
         new_run_id() if distributed.is_main_process else None
     )
@@ -207,6 +207,7 @@ def _run_training(
         metadata_mode="index",
     )
     test_set = None
+    icdar_set = None
     data_root = None
     if not config.overfit_check and config.evaluation_policy == "final_test":
         test_set = HCCRDataset(
@@ -224,6 +225,16 @@ def _run_training(
             and (test_set.root / test_set.rows[0]["source_file"]).is_file()
             else None
         )
+        if "icdar" in writer_info["available_splits"]:
+            icdar_set = HCCRDataset(
+                config.manifest_path,
+                "icdar",
+                EvalPreprocessor(config.image_size),
+                class_id_map,
+                storage_backend=config.dataset_backend,
+                lmdb_path=config.lmdb_path,
+                metadata_mode="index",
+            )
     label_mapping: dict[int, str] = {}
     if distributed.is_main_process:
         if class_id_map is not None:
@@ -277,6 +288,8 @@ def _run_training(
         )
     if test_set is not None and not test_set:
         raise ValueError("test split must contain at least one sample")
+    if icdar_set is not None and not icdar_set:
+        raise ValueError("icdar split must contain at least one sample")
     generator = torch.Generator().manual_seed(config.seed + distributed.rank)
     loader_options = _data_loader_options(config, device)
     train_sampler = _train_sampler(train_set, config, distributed)
@@ -333,6 +346,12 @@ def _run_training(
             len(test_set),
             writer_info["availability"],
         )
+    icdar_loader = None
+    if icdar_set is not None and distributed.is_main_process:
+        icdar_loader = DataLoader(
+            icdar_set, batch_size=config.batch_size, **loader_options
+        )
+        logger.info("final external holdout split=icdar samples=%s", len(icdar_set))
     calibration_loader = None
     if config.bn_recalibration_batches and distributed.is_main_process:
         calibration_set = HCCRDataset(
@@ -615,6 +634,26 @@ def _run_training(
                 output_dir, final_test_metrics, selected_checkpoint_name
             )
         final_metrics = final_test_metrics or selected_validation_metrics
+        final_icdar_metrics = None
+        if icdar_loader is not None:
+            final_icdar_metrics = evaluate(
+                selected_model,
+                icdar_loader,
+                device,
+                output_dir / "icdar",
+                data_root,
+                label_mapping,
+                training_class_support,
+                evaluation_name="icdar",
+                precision=precision,
+            )
+            record_final_test_metrics(
+                output_dir, final_icdar_metrics, selected_checkpoint_name, split="icdar"
+            )
+            logger.info(
+                "external holdout | %s",
+                _format_final_metrics(final_icdar_metrics, "icdar"),
+            )
         write_json(
             output_dir / "metrics.json",
             _metrics_payload(
@@ -631,6 +670,7 @@ def _run_training(
                 final_test_metrics,
                 selected_checkpoint_name,
                 recalibration_report,
+                final_icdar_metrics,
             ),
         )
         _append_experiment_summary(
@@ -644,6 +684,7 @@ def _run_training(
             final_test_metrics,
             resource_profile,
             curves,
+            final_icdar_metrics,
         )
         logger.info(
             "training completed run_id=%s | %s",
@@ -730,6 +771,13 @@ def _checkpoint_metadata(
             "writer_provenance": writer_info,
             "metrics": None,
         },
+        "icdar": {
+            "split": "icdar" if "icdar" in writer_info["available_splits"] else None,
+            "status": "not_run",
+            "evaluation_policy": config.evaluation_policy,
+            "writer_provenance": writer_info,
+            "metrics": None,
+        },
         "manifest_digest": file_digest(config.manifest_path),
         "labels_digest": file_digest(output_dir / "labels.json"),
         "class_subset_digest": (
@@ -754,6 +802,7 @@ def _metrics_payload(
     final_test_metrics: dict[str, float] | None = None,
     selected_checkpoint_name: str | None = None,
     recalibration_report: dict | None = None,
+    final_icdar_metrics: dict[str, float] | None = None,
 ) -> dict[str, object]:
     validation: dict[str, object] = {
         "split": selection_split,
@@ -768,6 +817,36 @@ def _metrics_payload(
         "run_id": run_id,
         "precision": precision.metadata(),
         "validation": validation,
+        "icdar": {
+            "split": "icdar" if "icdar" in writer_info["available_splits"] else None,
+            "status": "completed" if final_icdar_metrics is not None else "not_run",
+            "reason": (
+                None
+                if final_icdar_metrics is not None
+                else (
+                    "split_unavailable"
+                    if "icdar" not in writer_info["available_splits"]
+                    else (
+                        "validation_only_policy"
+                        if config.evaluation_policy == "validation_only"
+                        else (
+                            "overfit_check"
+                            if config.overfit_check
+                            else "pending_final_evaluation"
+                        )
+                    )
+                )
+            ),
+            "available": "icdar" in writer_info["available_splits"],
+            "evaluation_policy": config.evaluation_policy,
+            "writer_provenance": writer_info,
+            "checkpoint": (
+                f"{selected_checkpoint_name}.pt"
+                if final_icdar_metrics is not None
+                else None
+            ),
+            "metrics": final_icdar_metrics,
+        },
         "test": {
             "split": "test" if final_test_metrics is not None else None,
             "status": "completed" if final_test_metrics is not None else "not_run",
@@ -1252,6 +1331,7 @@ def _append_experiment_summary(
     test_metrics: dict[str, float] | None,
     resource_profile: dict,
     curves: list[dict],
+    icdar_metrics: dict[str, float] | None = None,
 ) -> None:
     benchmark = resource_profile["inference_benchmarks"][0]
     end_to_end = resource_profile["end_to_end_batch1_benchmark"]
@@ -1286,6 +1366,19 @@ def _append_experiment_summary(
                 "run_id": run_id,
                 "selection_split": selection_split,
                 "test_split": "test" if test_metrics is not None else None,
+                "icdar_split": "icdar" if icdar_metrics is not None else None,
+                **{
+                    f"icdar_{key}": icdar_metrics.get(key) if icdar_metrics else None
+                    for key in (
+                        "top1",
+                        "top5",
+                        "macro_recall",
+                        "head_recall",
+                        "mid_recall",
+                        "tail_recall",
+                        "expected_calibration_error",
+                    )
+                },
                 "model": config.model,
                 "precision_requested": precision.requested,
                 "precision_resolved": precision.resolved,

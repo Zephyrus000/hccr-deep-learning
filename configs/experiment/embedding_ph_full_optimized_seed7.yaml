@@ -1,0 +1,24 @@
+# Same scientific protocol, accelerated execution, separate immutable output.
+source_root: artifacts/casia-lmdb-full-loss-ph-seed7-20261019/ph/seed-7/features
+output_dir: artifacts/embedding-ph-full-seed7-20261020-optimized
+seed: 7
+class_subset_seed: 7
+max_classes: 7186
+bank_per_class: 32
+neighbors: 32
+query_batch_size: 512
+reference_batch_size: 32768
+search_backend: cuda_exact
+search_threads: 6
+ph_workers: 6
+ph_chunk_size: 32
+head_epochs: 8
+head_batch_size: 2048
+head_learning_rate: 0.001
+head_weight_decay: 0.0001
+logit_scale: 32.0
+angular_margin: 0.1
+alpha_grid: [0.25, 0.5, 1.0, 2.0]
+knn_mix_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+device: cuda
+precision: float32

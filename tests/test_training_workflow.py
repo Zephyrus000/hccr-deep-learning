@@ -28,6 +28,8 @@ class TrainingWorkflowTests(unittest.TestCase):
                 ("validation-b", 160),
                 ("test-a", 128),
                 ("test-b", 192),
+                ("icdar-a", 112),
+                ("icdar-b", 208),
             ):
                 image_path = root / "raw" / f"{name}.png"
                 image_path.parent.mkdir(exist_ok=True)
@@ -43,6 +45,8 @@ class TrainingWorkflowTests(unittest.TestCase):
                     "validation-b,raw/validation-b.png,,B,1,validation\n"
                     "test-a,raw/test-a.png,,A,0,test\n"
                     "test-b,raw/test-b.png,,B,1,test\n"
+                    "icdar-a,raw/icdar-a.png,,A,0,icdar\n"
+                    "icdar-b,raw/icdar-b.png,,B,1,icdar\n"
                 ),
                 encoding="utf-8",
             )
@@ -82,7 +86,7 @@ class TrainingWorkflowTests(unittest.TestCase):
                     call.kwargs["evaluation_name"]
                     for call in mocked_evaluate.call_args_list
                 ],
-                ["validation", "validation", "validation", "test"],
+                ["validation", "validation", "validation", "test", "icdar"],
             )
             run_directory = next((root / "experiments").glob("20*"))
             metadata = json.loads((run_directory / "metadata.json").read_text())
@@ -92,6 +96,28 @@ class TrainingWorkflowTests(unittest.TestCase):
             )
             self.assertIn("run_id", metadata)
             self.assertEqual(final_metrics, metrics["test"]["metrics"])
+            self.assertEqual(metrics["icdar"]["status"], "completed")
+            self.assertEqual(
+                metrics["test"]["checkpoint"], metrics["icdar"]["checkpoint"]
+            )
+            self.assertTrue((run_directory / "icdar" / "icdar_health.json").is_file())
+            self.assertTrue((run_directory / "icdar" / "icdar_errors.csv").is_file())
+            self.assertTrue(
+                (run_directory / "icdar" / "per_class_metrics.csv").is_file()
+            )
+            import csv
+
+            with (experiments_dir / "experiment_summary.csv").open(
+                newline="", encoding="utf-8"
+            ) as handle:
+                summary_rows = list(csv.DictReader(handle))
+            self.assertEqual(
+                float(summary_rows[-1]["icdar_top1"]),
+                metrics["icdar"]["metrics"]["top1"],
+            )
+            self.assertEqual(
+                float(summary_rows[-1]["top1"]), metrics["test"]["metrics"]["top1"]
+            )
             self.assertEqual(metrics["schema_version"], 2)
             self.assertEqual(
                 metrics["validation"]["best"],
@@ -197,6 +223,11 @@ class TrainingWorkflowTests(unittest.TestCase):
                 metrics["test"]["metrics"],
             )
             self.assertEqual(final_checkpoint_metadata["test"]["status"], "completed")
+            self.assertEqual(final_checkpoint_metadata["icdar"]["status"], "completed")
+            self.assertEqual(
+                final_checkpoint_metadata["icdar"]["metrics"],
+                metrics["icdar"]["metrics"],
+            )
             recalibration = json.loads(
                 (run_directory / "bn_recalibration.json").read_text()
             )
@@ -265,6 +296,8 @@ class TrainingWorkflowTests(unittest.TestCase):
                     "train-b,raw/train-b.png,,B,1,train\n"
                     "validation-a,raw/validation-a.png,,A,0,validation\n"
                     "validation-b,raw/validation-b.png,,B,1,validation\n"
+                    "held-test,missing-test.png,,A,0,test\n"
+                    "held-icdar,missing-icdar.png,,A,0,icdar\n"
                 ),
                 encoding="utf-8",
             )
@@ -312,6 +345,12 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertIsNone(metrics["test"]["metrics"])
             self.assertEqual(checkpoint_metadata["test"]["status"], "not_run")
             self.assertFalse((run_directory / "test_health.json").exists())
+            self.assertEqual(metrics["icdar"]["status"], "not_run")
+            self.assertEqual(metrics["icdar"]["reason"], "validation_only_policy")
+            self.assertIsNone(metrics["icdar"]["metrics"])
+            self.assertTrue(metrics["icdar"]["available"])
+            self.assertFalse((run_directory / "icdar_health.json").exists())
+            self.assertFalse((run_directory / "icdar").exists())
 
     def test_strict_reproducibility_records_resolved_flags(self) -> None:
         config = TrainingConfig(

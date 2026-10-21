@@ -13,6 +13,8 @@ import matplotlib
 import torch
 from PIL import Image, ImageDraw, ImageFont
 
+from hccr.data.gnt import load_source_image
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -451,10 +453,8 @@ def _write_error_gallery(
     draw = ImageDraw.Draw(canvas)
     font = _gallery_font(12)
     for index, (row, target, prediction) in enumerate(errors):
-        image_path = source_root / row["source_file"]
-        with Image.open(image_path) as image:
-            tile = image.convert("RGB")
-            tile.thumbnail((tile_size, tile_size))
+        tile = load_source_image(source_root, row).convert("RGB")
+        tile.thumbnail((tile_size, tile_size))
         x = (index % columns) * tile_size
         y = (index // columns) * (tile_size + caption_height)
         canvas.paste(

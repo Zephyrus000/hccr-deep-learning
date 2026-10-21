@@ -12,6 +12,14 @@ EXPERIMENT_SUMMARY_FIELDS = (
     "run_id",
     "selection_split",
     "test_split",
+    "icdar_split",
+    "icdar_top1",
+    "icdar_top5",
+    "icdar_macro_recall",
+    "icdar_head_recall",
+    "icdar_mid_recall",
+    "icdar_tail_recall",
+    "icdar_expected_calibration_error",
     "model",
     "precision_requested",
     "precision_resolved",
@@ -124,9 +132,7 @@ def merge_resource_profile_into_summary(
         "estimated_embedding_projection_flops": profile.get(
             "estimated_embedding_projection_flops"
         ),
-        "estimated_classifier_flops": profile.get(
-            "estimated_classifier_flops"
-        ),
+        "estimated_classifier_flops": profile.get("estimated_classifier_flops"),
         "estimated_head_flops": profile.get("estimated_head_flops"),
         "mac_coverage_complete": mac_coverage.get("complete"),
         "unsupported_operator_types": json.dumps(
@@ -143,9 +149,7 @@ def merge_resource_profile_into_summary(
         "latency_p95_ms": benchmark.get("latency_p95_ms"),
         "latency_p99_ms": benchmark.get("latency_p99_ms"),
         "samples_per_second": benchmark.get("samples_per_second"),
-        "peak_inference_cuda_memory_mib": benchmark.get(
-            "peak_cuda_memory_mib"
-        ),
+        "peak_inference_cuda_memory_mib": benchmark.get("peak_cuda_memory_mib"),
     }
     if flop_coverage is not None:
         values.update(

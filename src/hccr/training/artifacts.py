@@ -41,14 +41,20 @@ def save_recalibrated_checkpoint(
 
 
 def record_final_test_metrics(
-    output_dir: Path, metrics: dict, checkpoint_name: str = "checkpoint"
+    output_dir: Path,
+    metrics: dict,
+    checkpoint_name: str = "checkpoint",
+    *,
+    split: str = "test",
 ) -> None:
-    """Attach one final held-out test result without changing selection metrics."""
+    """Attach an independent final holdout result without changing selection."""
+    if split not in {"test", "icdar"}:
+        raise ValueError("final holdout split must be test or icdar")
     metadata_path = output_dir / f"{checkpoint_name}_metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    metadata["test"]["status"] = "completed"
-    metadata["test"]["metrics"] = metrics
-    metadata["test"]["checkpoint"] = f"{checkpoint_name}.pt"
+    metadata[split]["status"] = "completed"
+    metadata[split]["metrics"] = metrics
+    metadata[split]["checkpoint"] = f"{checkpoint_name}.pt"
     metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

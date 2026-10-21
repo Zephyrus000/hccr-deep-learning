@@ -106,9 +106,8 @@ class ExperimentRunnerTests(unittest.TestCase):
         self.assertEqual(new_command[new_command.index("--width") + 1], "80")
         self.assertEqual(
             new_command[
-                new_command.index("--stage-depths") + 1 : new_command.index(
-                    "--stage-depths"
-                )
+                new_command.index("--stage-depths")
+                + 1 : new_command.index("--stage-depths")
                 + 4
             ],
             ("2", "3", "3"),
@@ -176,9 +175,7 @@ class ExperimentRunnerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             restored = load_model_from_run(run_dir, "cpu").eval()
-            full_head = load_model_from_run(
-                run_dir, "cpu", num_classes_override=100
-            )
+            full_head = load_model_from_run(run_dir, "cpu", num_classes_override=100)
 
         self.assertEqual(restored.classifier[-1].out_features, 11)
         self.assertEqual(full_head.classifier[-1].out_features, 100)
@@ -245,9 +242,7 @@ class ExperimentRunnerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             restored = load_model_from_run(run_dir, "cpu").eval()
-            full_head = load_model_from_run(
-                run_dir, "cpu", num_classes_override=100
-            )
+            full_head = load_model_from_run(run_dir, "cpu", num_classes_override=100)
 
         self.assertEqual(restored.embedding_projection.in_features, 576)
         self.assertEqual(restored.embedding_projection.out_features, 320)
@@ -290,9 +285,7 @@ class ExperimentRunnerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             restored = load_model_from_run(run_dir, "cpu").eval()
-            full_head = load_model_from_run(
-                run_dir, "cpu", num_classes_override=100
-            )
+            full_head = load_model_from_run(run_dir, "cpu", num_classes_override=100)
 
         self.assertEqual(restored.backbone_output_channels, 40)
         self.assertEqual(restored.embedding_dim, 12)
@@ -394,6 +387,10 @@ class ExperimentRunnerTests(unittest.TestCase):
                             "status": "completed",
                             "metrics": {"top1": 0.75, "top5": 0.93},
                         },
+                        "icdar": {
+                            "status": "completed",
+                            "metrics": {"top1": 0.70, "top5": 0.90},
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -421,6 +418,8 @@ class ExperimentRunnerTests(unittest.TestCase):
         record = result["records"][0]
         self.assertEqual(record["selection_metrics"]["top1"], 0.8)
         self.assertEqual(record["test_metrics"]["top1"], 0.75)
+        self.assertEqual(record["icdar_status"], "completed")
+        self.assertEqual(record["icdar_metrics"]["top1"], 0.70)
         self.assertEqual(result["variants"]["default"]["metrics"]["top1"]["mean"], 0.8)
 
     def test_current_metrics_prefer_selected_validation_variant(self) -> None:

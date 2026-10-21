@@ -10,6 +10,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms.v2 import functional as vision_functional
 
+from hccr.data.gnt import load_source_image
 from hccr.data.lmdb_store import LMDBImageStore, manifest_digest
 from hccr.data.manifest import read_manifest
 
@@ -88,8 +89,7 @@ class HCCRDataset(Dataset[tuple[torch.Tensor, int, object]]):
         row = self.rows[row_or_index] if isinstance(row_or_index, int) else row_or_index
         if self.image_store is not None:
             return self.image_store.read_image(row["sample_id"])
-        with Image.open(self.root / row["source_file"]) as image:
-            return image.convert("L")
+        return load_source_image(self.root, row)
 
     def metadata_for_index(self, index: int) -> dict[str, str]:
         row = self.rows[index]

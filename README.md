@@ -15,7 +15,7 @@ and latency-aware model evaluation.
 ## Highlights
 
 - Compact depthwise-separable CNN with CosFace or ArcFace classification heads.
-- Deterministic manifest generation and validation for folder-exported data.
+- Deterministic manifest generation for folder exports and official CASIA GNTs.
 - Reproducible training runs with checkpoints, metrics, plots, logs, and
   environment metadata.
 - Class-subset experiments for faster architecture screening.
@@ -28,6 +28,11 @@ The executable CLI implements `train`, `benchmark`, and `compare-runs` through
 separate command modules. `validate`, `deploy`, `prepare-data`, `evaluate`,
 `predict`, and `tune` are explicit workflow scaffolds; use the Python APIs
 documented below until those commands are implemented.
+
+For official HWDB1.1 or HWDB1.0 through HWDB1.2 downloads, use
+`scripts/build_casia_manifest.py`. See the [CASIA GNT preparation guide](src/hccr/data/README.md#prepare-official-casia-gnt-datasets)
+for writer-disjoint validation, shared train/test label mappings, and direct
+GNT-to-LMDB packing.
 
 ## Architecture
 
@@ -242,7 +247,7 @@ Generated files include `manifest.csv`, `labels.json`, `audit_report.json`, and
 | `writer_id` | Writer identity when available; may be empty. |
 | `unicode_label` | Character represented by the sample. |
 | `class_id` | Integer class identifier. |
-| `split` | `train`, `validation`, or `test`. |
+| `split` | `train`, `validation`, `test`, or optional external holdout `icdar`. |
 
 Pack the frozen dataset into a single LMDB file before large training runs:
 
@@ -340,6 +345,13 @@ checkpoint metadata.
 
 If BN recalibration is enabled, its variant is compared on validation first;
 only the selected variant receives the single final test evaluation.
+
+For official GNT data, the [CASIA preparation guide](src/hccr/data/README.md#prepare-the-icdar-2013-benchmark)
+provides a four-split protocol: writer-disjoint train/validation from official
+CASIA train, unchanged official CASIA `test`, and a separate `icdar` holdout.
+`final_test` evaluates both holdouts once on the validation-selected checkpoint.
+Results remain separate in `metrics.json` (`test.metrics` and `icdar.metrics`)
+and `experiment_summary.csv` (`top1` and `icdar_top1`).
 
 The default batch-aware policy makes `--epochs` an update-budget request rather
 than only a physical-epoch count. For example, with a 64-sample reference,

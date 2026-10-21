@@ -15,6 +15,8 @@ import lmdb
 from PIL import Image
 from tqdm.auto import tqdm
 
+from hccr.data.gnt import load_source_image
+
 SCHEMA_VERSION = 1
 METADATA_KEY = b"__hccr_metadata__"
 IMAGE_KEY_PREFIX = b"image:"
@@ -133,7 +135,12 @@ def build_lmdb_image_store(
 ) -> dict[str, Any]:
     """Pack encoded source images into one atomic single-file LMDB dataset."""
     resolved_map_size = map_size or _estimate_map_size(
-        rows, lambda row: _filesystem_image_path(source_root, row).stat().st_size
+        rows,
+        lambda row: (
+            int(row["width"]) * int(row["height"]) + 1024
+            if Path(row["source_file"]).suffix.lower() == ".gnt"
+            else _filesystem_image_path(source_root, row).stat().st_size
+        ),
     )
     return _build_lmdb_image_store(
         manifest_path,
@@ -144,6 +151,11 @@ def build_lmdb_image_store(
         commit_interval,
         show_progress,
         source_kind="filesystem",
+        value_encoding=(
+            "encoded_images_with_lossless_png_for_gnt_records"
+            if any(Path(row["source_file"]).suffix.lower() == ".gnt" for row in rows)
+            else "original_encoded_image_bytes"
+        ),
     )
 
 
@@ -195,6 +207,7 @@ def _build_lmdb_image_store(
     *,
     source_kind: str,
     source_prefix: str = "",
+    value_encoding: str = "original_encoded_image_bytes",
 ) -> dict[str, Any]:
     if commit_interval < 1:
         raise ValueError("commit_interval must be positive")
@@ -241,7 +254,7 @@ def _build_lmdb_image_store(
             "source_bytes": source_bytes,
             "source_kind": source_kind,
             "source_prefix": source_prefix,
-            "value_encoding": "original_encoded_image_bytes",
+            "value_encoding": value_encoding,
         }
         transaction.put(METADATA_KEY, json.dumps(metadata).encode("utf-8"))
         transaction.commit()
@@ -291,6 +304,10 @@ def _filesystem_image_path(source_root: Path, row: dict[str, str]) -> Path:
 
 def _read_filesystem_image(source_root: Path, row: dict[str, str]) -> bytes:
     image_path = _filesystem_image_path(source_root, row)
+    if image_path.suffix.lower() == ".gnt":
+        with BytesIO() as buffer:
+            load_source_image(source_root, row).save(buffer, format="PNG")
+            return buffer.getvalue()
     try:
         return image_path.read_bytes()
     except FileNotFoundError as error:

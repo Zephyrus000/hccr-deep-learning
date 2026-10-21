@@ -1,0 +1,21 @@
+# Development-only pilot. evaluate is an explicit, separate command.
+# Reuses frozen 320D CNN caches extracted from the LMDB-backed study.
+source_root: artifacts/casia-lmdb-full-loss-ph-seed7-20261019/ph/seed-7/features
+output_dir: artifacts/embedding-ph-200
+seed: 7
+class_subset_seed: 7
+max_classes: 200
+bank_per_class: 32
+neighbors: 32
+query_batch_size: 32
+reference_batch_size: 2048
+head_epochs: 8
+head_batch_size: 2048
+head_learning_rate: 0.001
+head_weight_decay: 0.0001
+logit_scale: 32.0
+angular_margin: 0.1
+alpha_grid: [0.25, 0.5, 1.0, 2.0]
+knn_mix_grid: [0.0, 0.25, 0.5, 0.75, 1.0]
+device: auto
+precision: float32

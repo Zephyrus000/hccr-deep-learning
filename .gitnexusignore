@@ -1,0 +1,10 @@
+# Generated datasets, checkpoints, profiling output, and experiment reports
+# are not source code and make graph refreshes unnecessarily slow.
+/artifacts/
+/experiments/
+/data/
+/.claude/
+/.pytest_cache/
+/.ruff_cache/
+/.venv/
+/.docs/
