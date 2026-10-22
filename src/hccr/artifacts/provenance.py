@@ -4,24 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
-import json
 import platform
 import subprocess
 import uuid
-from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
-def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if is_dataclass(payload):
-        payload = asdict(payload)
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
-        encoding="utf-8",
-    )
+from hccr.artifacts.serialization import write_json
 
 
 def new_run_id() -> str:

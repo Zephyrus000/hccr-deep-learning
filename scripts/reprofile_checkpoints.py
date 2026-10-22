@@ -18,14 +18,9 @@ from typing import Any
 
 import torch
 
+from hccr.artifacts import write_json
+from hccr.benchmarking.profiling import profile_model
 from hccr.models import load_model_from_run
-from hccr.preprocessing import EvalPreprocessor
-from hccr.training.diagnostics import profile_model
-from hccr.training.summary import (
-    merge_resource_profile_into_summary,
-    write_experiment_summary_rows,
-)
-from hccr.utils.experiment import write_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,13 +74,10 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def batch_one(profile: dict[str, Any], optimized: bool = False) -> dict[str, Any]:
-    benchmarks = (
-        profile["optimized_inference"]["benchmarks"]
-        if optimized
-        else profile["inference_benchmarks"]
+def batch_one(profile: dict[str, Any]) -> dict[str, Any]:
+    return next(
+        row for row in profile["inference_benchmarks"] if int(row["batch_size"]) == 1
     )
-    return next(row for row in benchmarks if int(row["batch_size"]) == 1)
 
 
 def profile_run(
@@ -126,7 +118,6 @@ def profile_run(
         warmup_iterations=warmup_iterations,
         benchmark_iterations=benchmark_iterations,
         benchmark_repetitions=benchmark_repetitions,
-        preprocessing_transform=EvalPreprocessor(**metadata["preprocess"]),
         full_class_num_classes=int(metadata["model"]["num_classes"]),
     )
     provenance = {
@@ -153,7 +144,6 @@ def profile_run(
 
 def summary_row(provenance: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     eager = batch_one(profile)
-    optimized = batch_one(profile, optimized=True)
     model = provenance["model"]
     return {
         "run_id": provenance["run_id"],
@@ -168,14 +158,6 @@ def summary_row(provenance: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "flop_coverage_complete": profile["flop_coverage"]["complete"],
         "eager_batch1_p50_ms": eager["latency_p50_ms"],
         "eager_batch1_p95_ms": eager["latency_p95_ms"],
-        "optimized_parameter_count": profile["optimized_inference"]["parameter_count"],
-        "optimized_estimated_macs": profile["optimized_inference"]["estimated_macs"],
-        "optimized_estimated_flops": profile["optimized_inference"]["estimated_flops"],
-        "optimized_flop_coverage_complete": profile["optimized_inference"][
-            "flop_coverage"
-        ]["complete"],
-        "optimized_batch1_p50_ms": optimized["latency_p50_ms"],
-        "optimized_batch1_p95_ms": optimized["latency_p95_ms"],
         "checkpoint_sha256": provenance["source_checkpoint_sha256"],
     }
 
@@ -198,8 +180,6 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         latency_fields = (
             "eager_batch1_p50_ms",
             "eager_batch1_p95_ms",
-            "optimized_batch1_p50_ms",
-            "optimized_batch1_p95_ms",
         )
         result[variant] = {
             "run_ids": [row["run_id"] for row in variant_rows],
@@ -232,7 +212,7 @@ def write_summary(
 ) -> None:
     rows = sorted(rows, key=lambda row: (row["model"], row["seed"], row["run_id"]))
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "completed_at": datetime.now(UTC).isoformat(),
         "protocol": {
             "device": device,
@@ -253,36 +233,6 @@ def write_summary(
         writer = csv.DictWriter(file, fieldnames=tuple(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-
-
-def write_experiment_summary(
-    runs_root: Path,
-    output_root: Path,
-    rows: list[dict[str, Any]],
-    device: str,
-) -> None:
-    """Migrate the source training summary with freshly measured profile fields."""
-    source_path = runs_root / "experiment_summary.csv"
-    if not source_path.is_file():
-        return
-    with source_path.open(newline="", encoding="utf-8") as file:
-        reader = csv.DictReader(file)
-        source_rows = {row["run_id"]: row for row in reader}
-
-    migrated = []
-    for result in rows:
-        run_id = result["run_id"]
-        if run_id not in source_rows:
-            continue
-        profile = load_json(
-            output_root / "runs" / run_id / device / "resource_profile.json"
-        )
-        migrated.append(
-            merge_resource_profile_into_summary(source_rows[run_id], profile)
-        )
-    write_experiment_summary_rows(
-        output_root / "experiment_summary.csv", migrated
-    )
 
 
 def main() -> int:
@@ -337,7 +287,6 @@ def main() -> int:
         for path in selected
     ]
     write_summary(arguments.output_root, rows, excluded, arguments, device)
-    write_experiment_summary(arguments.runs_root, arguments.output_root, rows, device)
     summary_path = arguments.output_root / "summary.json"
     print(f"completed {len(rows)} profiles; summary={summary_path}", flush=True)
     return 0

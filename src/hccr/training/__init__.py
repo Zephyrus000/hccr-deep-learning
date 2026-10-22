@@ -1,5 +1,6 @@
+from hccr.benchmarking.profiling import profile_model
 from hccr.training.callbacks import EarlyStopping
-from hccr.training.diagnostics import profile_model, write_training_diagnostics
+from hccr.training.diagnostics import write_training_diagnostics
 from hccr.training.precision import PRECISION_NAMES, PrecisionContext, resolve_precision
 from hccr.training.trainer import train_epoch
 from hccr.training.workflow import TrainingConfig, run_training

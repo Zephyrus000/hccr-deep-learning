@@ -1,9 +1,24 @@
 # Benchmarking
 
-This package defines the common timing and report contract shared by benchmark
-entrypoints. It contains no model, dataset, or CLI orchestration.
+This package owns model profiling, operator complexity accounting, and the timing
+schemas shared by explicit benchmark entrypoints.
 
-Canonical latency summaries use these keys:
+`profiling.ModelProfiler` measures the selected training checkpoint using native
+FP32 inference at batch size 1. `resource_profile.json` schema 2 retains parameter
+counts and size, MACs/FLOPs with operator coverage, mean/p50/p95 latency,
+throughput, peak CUDA allocation, warm-up/timing counts, device/runtime metadata,
+and repetition summaries. Training attaches the selected checkpoint name and
+SHA-256. `complexity.py` owns the operator FLOP formulas.
+CUDA memory reports peak live process allocation during forward timing.
+Training clears optimizer state and gradients before collecting the profile.
+
+Automatic profiles no longer run batch sizes 8 and 32, optimized model copies,
+synthetic PIL-to-logits timing, or a second randomly initialized full-class head.
+They also omit p99. Analytical full-class parameter/operation projections remain
+clearly separate from measurements. Use the explicit CLI below for deployment
+comparisons, different batch sizes, and optimized execution.
+
+Explicit benchmark CLI summaries use these keys:
 
 - `latency_mean_ms`
 - `latency_p50_ms`

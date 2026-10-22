@@ -8,16 +8,14 @@ from unittest.mock import patch
 
 import torch
 
-from hccr.experiment_runner import (
-    _distribution,
-    _paired_metric_delta,
-    _summarize,
+from hccr.experiments.cli import build_parser
+from hccr.experiments.runner import (
     _validate_hardware_requirements,
     build_jobs,
-    build_parser,
-    load_experiment_spec,
     run_experiments,
 )
+from hccr.experiments.spec import load_experiment_spec
+from hccr.experiments.summary import _distribution, _paired_metric_delta, _summarize
 from hccr.models import EfficientHCCRNet, build_model, load_model_from_run
 
 
@@ -106,8 +104,9 @@ class ExperimentRunnerTests(unittest.TestCase):
         self.assertEqual(new_command[new_command.index("--width") + 1], "80")
         self.assertEqual(
             new_command[
-                new_command.index("--stage-depths")
-                + 1 : new_command.index("--stage-depths")
+                new_command.index("--stage-depths") + 1 : new_command.index(
+                    "--stage-depths"
+                )
                 + 4
             ],
             ("2", "3", "3"),
@@ -410,8 +409,10 @@ class ExperimentRunnerTests(unittest.TestCase):
             spec = load_experiment_spec(arguments, root)
 
             with (
-                patch("hccr.experiment_runner._run_training_job", return_value=run_dir),
-                patch("hccr.experiment_runner._profile_run", return_value={}),
+                patch(
+                    "hccr.experiments.runner._run_training_job", return_value=run_dir
+                ),
+                patch("hccr.experiments.runner._profile_run", return_value={}),
             ):
                 result = run_experiments(spec)
 
@@ -454,8 +455,10 @@ class ExperimentRunnerTests(unittest.TestCase):
             )
             spec = load_experiment_spec(arguments, root)
             with (
-                patch("hccr.experiment_runner._run_training_job", return_value=run_dir),
-                patch("hccr.experiment_runner._profile_run", return_value={}),
+                patch(
+                    "hccr.experiments.runner._run_training_job", return_value=run_dir
+                ),
+                patch("hccr.experiments.runner._profile_run", return_value={}),
             ):
                 result = run_experiments(spec)
 

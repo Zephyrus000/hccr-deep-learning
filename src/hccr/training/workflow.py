@@ -16,6 +16,12 @@ from random import setstate as restore_random_state
 import torch
 from torch.utils.data import DataLoader, DistributedSampler, Subset
 
+from hccr.artifacts import RunArtifacts, new_run_id, write_json
+from hccr.artifacts.checkpoints import (
+    file_digest,
+)
+from hccr.artifacts.summary import SummaryTable
+from hccr.benchmarking.profiling import profile_model
 from hccr.data.dataset import HCCRDataset, select_class_subset
 from hccr.data.manifest import read_manifest, validate_training_manifest
 from hccr.evaluation.evaluator import evaluate
@@ -23,15 +29,8 @@ from hccr.evaluation.reports import save_learning_curves
 from hccr.models import MODEL_NAMES, build_model
 from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
 from hccr.preprocessing.gallery import save_gallery
-from hccr.training.artifacts import (
-    file_digest,
-    record_final_test_metrics,
-    save_checkpoint,
-    save_recalibrated_checkpoint,
-)
 from hccr.training.callbacks import EarlyStopping
 from hccr.training.diagnostics import (
-    profile_model,
     recalibrate_batch_norm,
     summarize_batch_norm_state,
     summarize_validation_stability,
@@ -46,10 +45,8 @@ from hccr.training.distributed import (
 )
 from hccr.training.losses import build_classification_loss
 from hccr.training.precision import PRECISION_NAMES, PrecisionContext, resolve_precision
-from hccr.training.summary import EXPERIMENT_SUMMARY_FIELDS
 from hccr.training.trainer import train_epoch
 from hccr.utils import close_logging, configure_logging, resolve_device
-from hccr.utils.experiment import initialize_run, new_run_id, write_curves, write_json
 
 
 @dataclass(frozen=True)
@@ -156,6 +153,7 @@ def _run_training(
         new_run_id() if distributed.is_main_process else None
     )
     output_dir = config.output_dir / run_id
+    artifacts = RunArtifacts(output_dir)
     logger = (
         configure_logging(output_dir)
         if distributed.is_main_process
@@ -163,8 +161,7 @@ def _run_training(
     )
     if distributed.is_main_process:
         logger.info("training started config=%s", config)
-        initialize_run(
-            output_dir,
+        artifacts.initialize(
             config,
             {
                 "manifest_digest": file_digest(config.manifest_path),
@@ -382,19 +379,6 @@ def _run_training(
             **loader_options,
         )
     model = _build_training_model(config, active_num_classes).to(device)
-    resource_profile = None
-    if distributed.is_main_process:
-        resource_profile = profile_model(
-            model,
-            config.image_size,
-            device,
-            output_dir,
-            config.benchmark_warmup_iterations,
-            config.benchmark_iterations,
-            config.benchmark_repetitions,
-            EvalPreprocessor(config.image_size),
-        )
-        logger.info("resource profile=%s", resource_profile)
     distributed.barrier()
     training_model = wrap_model_for_training(model, distributed)
     base_model = unwrap_model(training_model)
@@ -476,15 +460,14 @@ def _run_training(
                 validation_history, config.validation_drop_threshold
             )
             curves.append(curve)
-            write_curves(output_dir, curves)
+            artifacts.write_curves(curves)
             write_training_diagnostics(output_dir, curves)
             write_json(output_dir / "validation_stability.json", validation_stability)
             save_learning_curves(output_dir, curves, evaluation_name=selection_split)
             if validation_metrics["top1"] >= best_validation_metrics["top1"]:
                 best_validation_metrics = validation_metrics
-                save_checkpoint(
+                artifacts.save_checkpoint(
                     base_model,
-                    output_dir,
                     _checkpoint_metadata(
                         config,
                         training_plan,
@@ -598,9 +581,8 @@ def _run_training(
                 selected_checkpoint_name = "checkpoint_recalibrated"
                 selected_validation_metrics = recalibrated_validation_metrics
                 recalibration_report["selected"] = True
-                save_recalibrated_checkpoint(
+                artifacts.save_recalibrated_checkpoint(
                     recalibrated_model,
-                    output_dir,
                     selected_validation_metrics,
                     recalibration_report,
                 )
@@ -630,8 +612,8 @@ def _run_training(
                 evaluation_name="test",
                 precision=precision,
             )
-            record_final_test_metrics(
-                output_dir, final_test_metrics, selected_checkpoint_name
+            artifacts.record_final_test_metrics(
+                final_test_metrics, selected_checkpoint_name
             )
         final_metrics = final_test_metrics or selected_validation_metrics
         final_icdar_metrics = None
@@ -647,8 +629,8 @@ def _run_training(
                 evaluation_name="icdar",
                 precision=precision,
             )
-            record_final_test_metrics(
-                output_dir, final_icdar_metrics, selected_checkpoint_name, split="icdar"
+            artifacts.record_final_test_metrics(
+                final_icdar_metrics, selected_checkpoint_name, split="icdar"
             )
             logger.info(
                 "external holdout | %s",
@@ -673,6 +655,25 @@ def _run_training(
                 final_icdar_metrics,
             ),
         )
+        optimizer.state.clear()
+        base_model.zero_grad(set_to_none=True)
+        selected_model.zero_grad(set_to_none=True)
+        del optimizer, scheduler, training_model, model, base_model
+        resource_profile = profile_model(
+            selected_model,
+            config.image_size,
+            device,
+            output_dir,
+            config.benchmark_warmup_iterations,
+            config.benchmark_iterations,
+            config.benchmark_repetitions,
+        )
+        resource_profile["checkpoint_name"] = selected_checkpoint_name
+        resource_profile["measurement_stage"] = "selected_checkpoint"
+        resource_profile["checkpoint_sha256"] = file_digest(
+            output_dir / f"{selected_checkpoint_name}.pt"
+        )
+        artifacts.write_json("resource_profile.json", resource_profile)
         _append_experiment_summary(
             config.output_dir,
             run_id,
@@ -812,6 +813,7 @@ def _metrics_payload(
     }
     if selected_validation_metrics is not None:
         validation["selected"] = selected_validation_metrics
+        validation["selected_checkpoint"] = f"{selected_checkpoint_name}.pt"
     return {
         "schema_version": 2,
         "run_id": run_id,
@@ -1333,186 +1335,33 @@ def _append_experiment_summary(
     curves: list[dict],
     icdar_metrics: dict[str, float] | None = None,
 ) -> None:
-    benchmark = resource_profile["inference_benchmarks"][0]
-    end_to_end = resource_profile["end_to_end_batch1_benchmark"]
-    full_class = resource_profile["full_class_projection"]
-    mac_coverage = resource_profile["mac_coverage"]
-    flop_coverage = resource_profile["flop_coverage"]
-    summary_path = experiments_dir / "experiment_summary.csv"
-    import csv
-
-    fields = list(EXPERIMENT_SUMMARY_FIELDS)
-    if summary_path.exists():
-        with summary_path.open(newline="", encoding="utf-8") as file:
-            reader = csv.DictReader(file)
-            existing_rows = list(reader)
-            existing_fields = reader.fieldnames or []
-        if existing_fields != fields:
-            with summary_path.open("w", newline="", encoding="utf-8") as file:
-                writer = csv.DictWriter(
-                    file,
-                    fieldnames=fields,
-                    extrasaction="ignore",
-                )
-                writer.writeheader()
-                writer.writerows(existing_rows)
-    write_header = not summary_path.exists()
-    with summary_path.open("a", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=fields)
-        if write_header:
-            writer.writeheader()
-        writer.writerow(
-            {
-                "run_id": run_id,
-                "selection_split": selection_split,
-                "test_split": "test" if test_metrics is not None else None,
-                "icdar_split": "icdar" if icdar_metrics is not None else None,
-                **{
-                    f"icdar_{key}": icdar_metrics.get(key) if icdar_metrics else None
-                    for key in (
-                        "top1",
-                        "top5",
-                        "macro_recall",
-                        "head_recall",
-                        "mid_recall",
-                        "tail_recall",
-                        "expected_calibration_error",
-                    )
-                },
-                "model": config.model,
-                "precision_requested": precision.requested,
-                "precision_resolved": precision.resolved,
-                "effective_input_channels": resource_profile[
-                    "effective_input_channels"
-                ],
-                "width": config.width if config.model == "efficient_hccr" else None,
-                "backbone_output_channels": resource_profile[
-                    "backbone_output_channels"
-                ],
-                "embedding_dim": resource_profile["embedding_dim"],
-                "dropout": config.dropout if config.model == "efficient_hccr" else None,
-                "stage_depths": (
-                    ",".join(map(str, config.stage_depths))
-                    if config.model == "efficient_hccr"
-                    else None
-                ),
-                "stem_stride": (
-                    config.stem_stride if config.model == "efficient_hccr" else None
-                ),
-                "reparameterize_depthwise": (
-                    config.reparameterize_depthwise
-                    if config.model == "efficient_hccr"
-                    else None
-                ),
-                "classification_head": config.classification_head,
-                "label_smoothing": config.label_smoothing,
-                "logit_scale": config.logit_scale,
-                "angular_margin": config.angular_margin,
-                "margin_warmup_ratio": (
-                    config.margin_warmup_ratio
-                    if config.classification_head in {"cosface", "arcface"}
-                    else 0.0
-                ),
-                "epochs": config.epochs,
-                "resolved_epochs": training_plan.resolved_epochs,
-                "batch_size": config.batch_size,
-                "world_size": training_plan.world_size,
-                "effective_global_batch_size": (
-                    training_plan.effective_global_batch_size
-                ),
-                "optimizer_step_policy": config.optimizer_step_policy,
-                "reference_batch_size": config.reference_batch_size,
-                "total_optimizer_steps": training_plan.total_optimizer_steps,
-                "image_size": config.image_size,
-                "validation_top1": validation_metrics["top1"],
-                "validation_top5": validation_metrics["top5"],
-                "validation_macro_recall": validation_metrics.get("macro_recall"),
-                "validation_tail_recall": validation_metrics.get("tail_recall"),
-                "top1": test_metrics.get("top1") if test_metrics else None,
-                "top5": test_metrics.get("top5") if test_metrics else None,
-                "macro_recall": (
-                    test_metrics.get("macro_recall") if test_metrics else None
-                ),
-                "head_recall": (
-                    test_metrics.get("head_recall") if test_metrics else None
-                ),
-                "mid_recall": (
-                    test_metrics.get("mid_recall") if test_metrics else None
-                ),
-                "tail_recall": (
-                    test_metrics.get("tail_recall") if test_metrics else None
-                ),
-                "expected_calibration_error": (
-                    test_metrics.get("expected_calibration_error")
-                    if test_metrics
-                    else None
-                ),
-                "parameter_count": resource_profile["parameter_count"],
-                "backbone_parameter_count": resource_profile[
-                    "backbone_parameter_count"
-                ],
-                "embedding_projection_parameter_count": resource_profile[
-                    "embedding_projection_parameter_count"
-                ],
-                "classifier_parameter_count": resource_profile[
-                    "classifier_parameter_count"
-                ],
-                "head_parameter_count": resource_profile["head_parameter_count"],
-                "estimated_macs": resource_profile["estimated_macs"],
-                "estimated_backbone_macs": resource_profile["estimated_backbone_macs"],
-                "estimated_embedding_projection_macs": resource_profile[
-                    "estimated_embedding_projection_macs"
-                ],
-                "estimated_classifier_macs": resource_profile[
-                    "estimated_classifier_macs"
-                ],
-                "estimated_head_macs": resource_profile["estimated_head_macs"],
-                "estimated_flops": resource_profile["estimated_flops"],
-                "estimated_backbone_flops": resource_profile[
-                    "estimated_backbone_flops"
-                ],
-                "estimated_embedding_projection_flops": resource_profile[
-                    "estimated_embedding_projection_flops"
-                ],
-                "estimated_classifier_flops": resource_profile[
-                    "estimated_classifier_flops"
-                ],
-                "estimated_head_flops": resource_profile["estimated_head_flops"],
-                "mac_coverage_complete": mac_coverage["complete"],
-                # Legacy alias retained so existing experiment_summary.csv rows
-                # keep their original MAC-coverage diagnostics during migration.
-                "unsupported_operator_types": json.dumps(
-                    mac_coverage["unsupported_operator_types"]
-                ),
-                "unsupported_mac_operator_types": json.dumps(
-                    mac_coverage["unsupported_operator_types"]
-                ),
-                "flop_coverage_complete": flop_coverage["complete"],
-                "unsupported_flop_operator_types": json.dumps(
-                    flop_coverage["unsupported_operator_types"]
-                ),
-                "full_class_num_classes": full_class.get("num_classes"),
-                "full_class_parameter_count": full_class.get("total_parameter_count"),
-                "full_class_estimated_macs": full_class.get("total_macs"),
-                "full_class_estimated_flops": full_class.get("total_flops"),
-                "latency_p50_ms": benchmark["latency_p50_ms"],
-                "latency_p95_ms": benchmark["latency_p95_ms"],
-                "latency_p99_ms": benchmark["latency_p99_ms"],
-                "end_to_end_latency_p50_ms": end_to_end["latency_p50_ms"],
-                "end_to_end_latency_p95_ms": end_to_end["latency_p95_ms"],
-                "end_to_end_latency_p99_ms": end_to_end["latency_p99_ms"],
-                "samples_per_second": benchmark["samples_per_second"],
-                "peak_inference_cuda_memory_mib": benchmark["peak_cuda_memory_mib"],
-                "peak_training_cuda_memory_mib": max(
-                    epoch.get("peak_cuda_memory_mib", 0.0) for epoch in curves
-                ),
-                "learning_rate": config.learning_rate,
-                "resolved_learning_rate": training_plan.resolved_learning_rate,
-                "learning_rate_scaling": config.learning_rate_scaling,
-                "lr_warmup_ratio": config.lr_warmup_ratio,
-                "weight_decay": config.weight_decay,
-                "scheduler": config.scheduler,
-                "seed": config.seed,
-                "max_classes": config.max_classes or config.num_classes,
-            }
-        )
+    row = {
+        **asdict(config),
+        **asdict(training_plan),
+        "run_id": run_id,
+        "selection_split": selection_split,
+        "test_split": "test" if test_metrics is not None else None,
+        "icdar_split": "icdar" if icdar_metrics is not None else None,
+        "precision_requested": precision.requested,
+        "precision_resolved": precision.resolved,
+        "stage_depths": ",".join(map(str, config.stage_depths)),
+        "max_classes": config.max_classes or config.num_classes,
+        "peak_training_cuda_memory_mib": max(
+            (epoch.get("peak_cuda_memory_mib", 0.0) for epoch in curves), default=0.0
+        ),
+        **{f"validation_{key}": value for key, value in validation_metrics.items()},
+        **(test_metrics or {}),
+        **{f"icdar_{key}": value for key, value in (icdar_metrics or {}).items()},
+    }
+    if config.model != "efficient_hccr":
+        for key in (
+            "width",
+            "dropout",
+            "stage_depths",
+            "stem_stride",
+            "reparameterize_depthwise",
+        ):
+            row[key] = None
+    if config.classification_head not in {"cosface", "arcface"}:
+        row["margin_warmup_ratio"] = 0.0
+    SummaryTable(experiments_dir).append(row, resource_profile)

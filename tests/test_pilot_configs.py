@@ -3,7 +3,9 @@
 from pathlib import Path
 from unittest import TestCase
 
-from hccr.experiment_runner import build_jobs, build_parser, load_experiment_spec
+from hccr.experiments.cli import build_parser
+from hccr.experiments.runner import build_jobs
+from hccr.experiments.spec import load_experiment_spec
 from hccr.tda.experiment import load_config
 
 REPO = Path(__file__).resolve().parents[1]

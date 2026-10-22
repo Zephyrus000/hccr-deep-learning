@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hccr.utils.experiment import initialize_run, write_curves
+from hccr.artifacts import initialize_run, write_curves
 
 
 class ExperimentArtifactsTests(unittest.TestCase):

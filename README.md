@@ -153,27 +153,9 @@ Treat a paper table as reproducible only when `summary.json` reports
 directories retain their original `config.json`, `metadata.json`,
 `checkpoint_metadata.json`, `metrics.json`, and `resource_profile.json`.
 
-Normalize historical and current schemas into a new immutable evidence bundle:
-
-```bash
-python scripts/build_evidence_bundle.py \
-  --experiments experiments \
-  --derived-root artifacts/experiments_20260915/profiling-20260918-rtx3060 \
-  --derived-root artifacts/experiments_20260915/profiling-20260918-rtx3060-multi-branch \
-  --derived-root artifacts/experiments_20260915/profiling-20260919-rtx3060-all-runs \
-  --output artifacts/paper-evidence-v1-full
-
-python scripts/build_evidence_bundle.py \
-  --validate artifacts/paper-evidence-v1-full
-```
-
-The bundle copies reviewer-facing raw artifacts without modifying their bytes,
-records their SHA-256 hashes, stores checkpoint hashes without duplicating the
-weights, and creates one canonical `run_evidence.json` per run. Repeated
-`--derived-root` options keep post-hoc profiling collections separate from the
-original runs while normalizing their resource profiles to the same view.
-Legacy fields that were never measured remain `null` with an explicit
-availability status.
+Runs and sweep summaries are read directly from `experiments/`.
+Explicit analysis tools may write to `artifacts/`; there is no evidence bundle
+or cross-directory schema mapping. Existing results are left intact.
 
 Reviewer checklist:
 
@@ -328,6 +310,10 @@ Each run is written to `experiments/<run-id>/`. Core artifacts include:
 - `resource_profile.json` and `training_diagnostics.json`
 - learning curves, reliability diagrams, per-class metrics, and error galleries
 - a run-scoped log and a cross-run `experiment_summary.csv`
+
+Automatic resource profiles use schema 2 and measure native batch-one inference
+after checkpoint selection. See [artifact policy](src/hccr/artifacts/README.md)
+for retained metrics, retired benchmarks, and the versioned CSV fallback.
 
 The manifest builder moves a deterministic 10% of each uploader-provided
 training class into `validation`; the remaining 90% is `train`. This is an
@@ -523,7 +509,9 @@ timings. The CSV files are derived tables for analysis.
 configs/              Data and executable paper-experiment configuration
 scripts/              Dataset, sweep, and inference benchmark entry points
 src/hccr/             Installable Python package
-├── benchmarking/     Shared benchmark schemas and timing summaries
+├── artifacts/        Run persistence, provenance, checkpoints, and CSV tables
+├── experiments/      Sweep specifications, execution, and seed statistics
+├── benchmarking/     Model profiling, complexity, and timing schemas
 ├── commands/         Isolated CLI parsers and command handlers
 ├── config/           YAML loading and lightweight schemas
 ├── data/             Manifest validation and dataset adapters
@@ -532,7 +520,7 @@ src/hccr/             Installable Python package
 ├── models/           EfficientHCCRNet and deploy optimization
 ├── preprocessing/    Train/evaluation image transforms
 ├── training/         Training workflow, callbacks, and artifacts
-└── utils/            Device, logging, and experiment utilities
+└── utils/            Device and logging utilities
 tests/                Unit and end-to-end smoke tests
 ```
 

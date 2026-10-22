@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from hccr.artifacts import write_json
 from hccr.experiments import compare_runs
-from hccr.utils.experiment import write_json
 
 NAME = "compare-runs"
 HELP = "Compare a candidate experiment with a baseline quality gate."

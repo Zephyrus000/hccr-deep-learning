@@ -23,19 +23,14 @@ and the legacy reserved commands are placeholders, not complete workflows.
 | [`commands`](commands/) | Isolated CLI parsers and handlers for each workflow. |
 | [`config`](config/README.md) | YAML loading and small cross-layer configuration records. |
 | [`data`](data/README.md) | Manifest validation, folder adapters, class subsets, and PyTorch datasets. |
-| [`evidence`](evidence/README.md) | Immutable raw-artifact checksums and canonical reviewer evidence bundles. |
+| [`artifacts`](artifacts/README.md) | Run persistence, provenance, checkpoints, and summary tables. |
+| [`experiments`](experiments/README.md) | Sweep configuration, execution, seed statistics, and comparisons. |
 | [`preprocessing`](preprocessing/README.md) | Deterministic evaluation normalization and train-only augmentation. |
 | [`models`](models/README.md) | `EfficientHCCRNet`, angular classifiers, and inference optimization. |
 | [`training`](training/README.md) | End-to-end training orchestration, callbacks, diagnostics, and checkpoints. |
 | [`evaluation`](evaluation/README.md) | Classification metrics, validation diagnostics, and plots. |
 | [`inference`](inference/README.md) | A small artifact-label-aware top-k predictor. |
-| [`utils`](utils/README.md) | Device selection, run logging, and structured experiment metadata. |
-
-Two orchestration modules live at package root:
-
-- `experiments.py` applies an accuracy/latency quality gate to completed runs.
-- `experiment_runner.py` expands YAML/CLI variants and seeds into sequential,
-  resumable training jobs.
+| [`utils`](utils/README.md) | Device selection and run logging. |
 
 ## Data flow
 

@@ -36,7 +36,7 @@ print(data.manifest_path, data.image_size)
 - `ValueError` when the YAML root is not a mapping.
 - The normal filesystem or YAML parser exception for unreadable/invalid input.
 
-Experiment sweep YAML is interpreted by `hccr.experiment_runner`; see
+Experiment sweep YAML is interpreted by `hccr.experiments.spec`; see
 [`configs/experiment/thesis_model_comparison.yaml`](../../../configs/experiment/thesis_model_comparison.yaml)
 for the supported `base_args`, `variants`, hardware constraints, and seed
 structure.

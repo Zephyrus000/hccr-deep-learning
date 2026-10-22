@@ -7,8 +7,8 @@ from pathlib import Path
 import torch
 from torch import nn
 
+from hccr.benchmarking.profiling import _compare_inference_outputs, profile_model
 from hccr.models import EfficientHCCRNet, build_model, optimize_model_for_inference
-from hccr.training.diagnostics import _compare_inference_outputs, profile_model
 
 
 class FixedScaledLogits(nn.Module):
@@ -150,7 +150,7 @@ class InferenceOptimizationTests(unittest.TestCase):
             self.assertIsInstance(block.block[3], nn.Conv2d)
             self.assertEqual(block.block[3].kernel_size, (1, 1))
 
-    def test_profile_keeps_eager_and_adds_optimized_benchmarks(self) -> None:
+    def test_profile_only_measures_native_batch_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             profile = profile_model(
                 EfficientHCCRNet(num_classes=11, width=4),
@@ -163,23 +163,11 @@ class InferenceOptimizationTests(unittest.TestCase):
             )
 
         self.assertIn("inference_benchmarks", profile)
-        self.assertTrue(profile["optimized_inference"]["equivalence"]["passed"])
-        self.assertEqual(
-            profile["benchmark_protocol"]["execution_context"],
-            "torch.inference_mode",
-        )
-        self.assertEqual(profile["benchmark_protocol"]["model_mode"], "eval")
-        self.assertEqual(len(profile["optimized_inference"]["benchmarks"]), 3)
-        self.assertIn("parameter_count", profile["optimized_inference"])
-        self.assertIn("estimated_macs", profile["optimized_inference"])
-        self.assertGreater(
-            profile["optimized_inference"]["estimated_flops"],
-            profile["optimized_inference"]["estimated_macs"] * 2,
-        )
-        self.assertTrue(profile["optimized_inference"]["flop_coverage"]["complete"])
-        self.assertIn("full_class_projection", profile["optimized_inference"])
+        self.assertNotIn("optimized_inference", profile)
+        self.assertEqual(len(profile["inference_benchmarks"]), 1)
+        self.assertTrue(profile["flop_coverage"]["complete"])
 
-    def test_cosface_baseline_runs_eager_and_optimized_inference_benchmarks(
+    def test_cosface_baseline_profile_only_measures_native_batch_one(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -198,10 +186,5 @@ class InferenceOptimizationTests(unittest.TestCase):
             )
 
         self.assertEqual(profile["classification_head"], "cosface")
-        self.assertEqual(len(profile["inference_benchmarks"]), 3)
-        self.assertEqual(len(profile["optimized_inference"]["benchmarks"]), 3)
-        self.assertIn(
-            "cache_normalized_classifier_weight",
-            profile["optimized_inference"]["transforms"],
-        )
-        self.assertTrue(profile["optimized_inference"]["equivalence"]["passed"])
+        self.assertEqual(len(profile["inference_benchmarks"]), 1)
+        self.assertNotIn("optimized_inference", profile)

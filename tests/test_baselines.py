@@ -5,13 +5,13 @@ from pathlib import Path
 
 import torch
 
-from hccr.models import EfficientHCCRNet, build_model
-from hccr.training.diagnostics import (
+from hccr.benchmarking.profiling import (
     _parameter_bytes_by_component,
     _parameter_counts_by_component,
     estimate_macs_by_component,
     project_classifier_cost,
 )
+from hccr.models import EfficientHCCRNet, build_model
 from hccr.training.trainer import train_epoch
 from hccr.training.workflow import (
     TrainingConfig,

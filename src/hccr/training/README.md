@@ -12,7 +12,7 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | `run_training(config)` | Execute one training run and return selected validation or final held-out test metrics according to policy. |
 | `train_epoch(...)` | Run one optimizer epoch and collect loss, timing, gradient, and throughput metrics. |
 | `EarlyStopping` | Track validation top-1 with patience and minimum delta. |
-| `profile_model(...)` | Measure parameters, Conv/Linear MACs, operator-level FLOPs, eager/optimized latency, coverage, and device metadata. |
+| `profile_model(...)` | Measure parameters, MACs/FLOPs, batch-one native latency, coverage, and device metadata via `hccr.benchmarking`. |
 | `write_training_diagnostics(...)` | Persist epoch diagnostic history. |
 | `resolve_precision(...)` | Resolve FP32, FP16+GradScaler, or BF16 autocast safely per device. |
 
@@ -24,10 +24,8 @@ best checkpoint, and persists artifacts needed for analysis and deployment.
 | `trainer.py` | Batch-level training and statistics. |
 | `losses.py` | Cross-entropy construction with label smoothing. |
 | `callbacks.py` | Early-stopping state. |
-| `artifacts.py` | Checkpoints, metadata, digests, and recalibrated variants. |
-| `diagnostics.py` | Complexity, latency, BatchNorm, stability, activation, and gradient diagnostics. |
+| `diagnostics.py` | BatchNorm, stability, activation, and gradient diagnostics. |
 | `precision.py` | AMP policy, autocast context, FP16 gradient scaling, and run metadata. |
-| `summary.py` | Canonical experiment-summary columns and lossless profile migration. |
 
 ## Minimal Python usage
 
@@ -56,16 +54,16 @@ providing argument validation and discoverable help.
 3. Select an optional deterministic class subset and create train/validation
    loaders from the frozen manifest. A test loader is created only for
    `evaluation_policy="final_test"`.
-4. Build `EfficientHCCRNet`, profile eager/optimized inference, and initialize
-   AdamW, scheduler, loss, and early stopping.
-5. Train and evaluate the `validation` split every epoch; use its top-1 for
-   checkpoint selection, plateau scheduling, early stopping, curves, and
-   diagnostics.
-6. Reload the selected checkpoint. In `validation_only`, stop without opening
-   test data; in `final_test`, evaluate the held-out test split once.
-7. Optionally recalibrate BatchNorm on a deterministic training subset and
-   choose the recalibrated copy only when validation top-1 improves.
-8. Append one row to `experiment_summary.csv` and return best metrics.
+4. Build the model and initialize AdamW, scheduler, loss, and early stopping.
+5. Train and evaluate validation each epoch; use validation Top-1 for checkpoint
+   selection, plateau scheduling, and early stopping.
+6. Reload the best checkpoint. Optionally compare a BatchNorm-recalibrated copy
+   on validation and select it only when validation Top-1 improves.
+7. Under `final_test`, evaluate the selected checkpoint on the held-out test set.
+   Under `validation_only`, leave test data unopened.
+8. Profile that selected checkpoint, attach its SHA-256, and append a summary
+   through `hccr.artifacts.summary.SummaryTable`. An incompatible historical CSV header
+   causes new rows to use `experiment_summary.v2.csv` instead.
 
 When `distributed=True`, launch the CLI with `torchrun` and one process per
 CUDA GPU. Each process receives a deterministic `DistributedSampler` shard of
@@ -143,10 +141,10 @@ the checkpoint. The minimum auditable chain is:
 | `metadata.json` | Git commit/dirty digest, runtime versions, device, reproducibility flags, and manifest digest. |
 | `checkpoint_metadata.json` and `labels.json` | Exact architecture and output-index mapping used to load the checkpoint. |
 | `metrics.json` | Validation-based selection and, only under `final_test`, the one-time held-out test result. |
-| `resource_profile.json` | Complexity convention, eager/optimized equivalence, hardware, and timing protocol. |
+| `resource_profile.json` | Complexity convention, selected checkpoint digest, hardware, and batch-one timing protocol. |
 
-A workflow refactor is behavior-preserving only if a fixed smoke run retains
-the same resolved plan, split membership, model state structure, metric schema,
-and benchmark schema. Random training need not be bit-identical across different
+Verify resolved plans, split membership, model state structure, and metric
+meaning after changes. Resource profile schema 2 intentionally omits the retired
+automatic benchmarks; historical profiles remain untouched. Random training need not be bit-identical across different
 hardware/software stacks, so reviewers should compare recorded conditions and
 multi-seed distributions rather than a single unqualified scalar.

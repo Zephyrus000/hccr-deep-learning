@@ -107,7 +107,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             )
             import csv
 
-            with (experiments_dir / "experiment_summary.csv").open(
+            with (experiments_dir / "experiment_summary.v2.csv").open(
                 newline="", encoding="utf-8"
             ) as handle:
                 summary_rows = list(csv.DictReader(handle))
@@ -247,9 +247,9 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertEqual(
                 resource_profile["full_class_projection"]["num_classes"], 7186
             )
-            self.assertIsNotNone(resource_profile["end_to_end_batch1_benchmark"])
+            self.assertNotIn("end_to_end_batch1_benchmark", resource_profile)
             summary_header = (
-                (experiments_dir / "experiment_summary.csv")
+                (experiments_dir / "experiment_summary.v2.csv")
                 .read_text(encoding="utf-8")
                 .splitlines()[0]
             )
@@ -258,7 +258,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertIn("classification_head", summary_header)
             self.assertIn("label_smoothing", summary_header)
             self.assertIn("full_class_parameter_count", summary_header)
-            self.assertIn("end_to_end_latency_p95_ms", summary_header)
+            self.assertNotIn("end_to_end_latency_p95_ms", summary_header)
             self.assertIn("peak_training_cuda_memory_mib", summary_header)
             self.assertIn("margin_warmup_ratio", summary_header)
             self.assertIn("optimizer_step_policy", summary_header)
@@ -269,11 +269,21 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertIn("total_optimizer_steps", summary_header)
             self.assertNotIn("margin_warmup_epochs", summary_header)
             summary_rows = (
-                (experiments_dir / "experiment_summary.csv")
+                (experiments_dir / "experiment_summary.v2.csv")
                 .read_text(encoding="utf-8")
                 .splitlines()
             )
-            self.assertEqual(len(summary_rows), 3)
+            self.assertEqual(len(summary_rows), 2)
+            self.assertEqual(
+                (experiments_dir / "experiment_summary.csv").read_text(
+                    encoding="utf-8"
+                ),
+                "run_id,margin_warmup_epochs\nlegacy-run,2\n",
+            )
+            self.assertEqual(
+                metrics["validation"]["selected_checkpoint"],
+                f"{resource_profile['checkpoint_name']}.pt",
+            )
 
     def test_validation_only_run_does_not_require_or_evaluate_test_split(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

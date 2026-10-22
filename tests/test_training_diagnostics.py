@@ -8,12 +8,10 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+from hccr.benchmarking.complexity import estimate_flops_by_component
+from hccr.benchmarking.profiling import estimate_macs_by_component, profile_model
 from hccr.models import EfficientHCCRNet, build_model
-from hccr.preprocessing import EvalPreprocessor
-from hccr.training.complexity import estimate_flops_by_component
 from hccr.training.diagnostics import (
-    estimate_macs_by_component,
-    profile_model,
     recalibrate_batch_norm,
     summarize_batch_norm_state,
     summarize_validation_stability,
@@ -58,7 +56,7 @@ class TrainingDiagnosticsTests(unittest.TestCase):
             )
             write_training_diagnostics(output, [{"epoch": 1.0, **epoch}])
             self.assertGreater(profile["parameter_count"], 0)
-            self.assertEqual(len(profile["inference_benchmarks"]), 3)
+            self.assertEqual(len(profile["inference_benchmarks"]), 1)
             self.assertEqual(profile["benchmark_protocol"]["repetitions"], 2)
             self.assertEqual(
                 len(profile["inference_benchmarks"][0]["repeat_summaries"]), 2
@@ -205,7 +203,7 @@ class ModelCostBreakdownTests(unittest.TestCase):
         )
         self.assertEqual(full_class["total_flops"], direct_full_flops["total"])
 
-    def test_profile_declares_coverage_end_to_end_and_full_head_projection(
+    def test_profile_declares_coverage_and_analytical_full_head_projection(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -217,7 +215,6 @@ class ModelCostBreakdownTests(unittest.TestCase):
                 warmup_iterations=1,
                 benchmark_iterations=1,
                 benchmark_repetitions=1,
-                preprocessing_transform=EvalPreprocessor(image_size=16),
                 full_class_num_classes=100,
             )
         self.assertFalse(profile["mac_coverage"]["complete"])
@@ -234,10 +231,8 @@ class ModelCostBreakdownTests(unittest.TestCase):
         self.assertEqual(
             profile["full_class_projection"]["head_parameter_count"], 3_200
         )
-        self.assertEqual(
-            profile["end_to_end_batch1_benchmark"]["scope"],
-            "synthetic_raw_pil_to_logits",
-        )
+        self.assertNotIn("end_to_end_batch1_benchmark", profile)
+        self.assertNotIn("latency_p99_ms", profile["inference_benchmarks"][0])
 
 
 class RetainedInputCostTests(unittest.TestCase):
