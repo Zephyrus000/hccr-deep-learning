@@ -76,12 +76,18 @@ Create an isolated environment and install the project:
 python -m venv .venv
 ```
 
+To recreate the checked Windows/Python 3.14/CUDA 13.0 environment, install
+the pinned snapshot with `python -m pip install -r requirements-lock.txt`.
+The snapshot includes development tools and packages already present in that
+virtual environment. For other operating systems or CUDA versions, use the
+flexible `requirements.txt` and select the matching PyTorch wheels.
+
 On Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-lock.txt
 python -m pip install -e .
 ```
 
@@ -90,7 +96,7 @@ On Linux or macOS:
 ```bash
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-lock.txt
 python -m pip install -e .
 ```
 
@@ -526,7 +532,7 @@ tests/                Unit and end-to-end smoke tests
 
 ## Development
 
-Install the development tools from `requirements.txt`, then run:
+Install the pinned development environment from `requirements-lock.txt`, then run:
 
 ```bash
 python -m ruff check src tests scripts

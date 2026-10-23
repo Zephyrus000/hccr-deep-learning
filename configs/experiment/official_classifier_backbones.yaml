@@ -1,0 +1,55 @@
+experiment_id: official-hwdb1_0-1_1-backbones
+manifest: data/processed/hwdb1_0-1_1_official_five_splits/manifest.csv
+output_dir: experiments/official_classifier
+seeds: [7, 17, 29]
+profile_devices: []
+full_class_num_classes: 3755
+base_args:
+  num_classes: 3755
+  require_official_data: true
+  evaluation_policy: validation_only
+  image_size: 96
+  embedding_dim: 320
+  classifier_structure: dense
+  classification_head: cosface
+  logit_scale: 32.0
+  angular_margin: 0.1
+  margin_warmup_ratio: 0.1
+  epochs: 100
+  batch_size: 256
+  reference_batch_size: 256
+  optimizer_step_policy: configured_epochs
+  learning_rate_scaling: none
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  lr_warmup_ratio: 0.05
+  scheduler: cosine
+  early_stopping_patience: 0
+  reproducibility_mode: strict
+  device: auto
+  precision: float32
+  dataset_backend: lmdb
+  num_workers: 12
+  train_rotation_degrees: 7.0
+  train_translate_ratio: 0.05
+  train_blur_probability: 0.0
+variants:
+  - name: efficient_hccr
+    args:
+      model: efficient_hccr
+      width: 80
+      stage_depths: [2, 3, 3]
+      backbone_output_channels: 320
+      reparameterize_depthwise: false
+  - name: resnet18
+    args: {model: resnet18}
+  - name: mobilenet_v3_small
+    args: {model: mobilenet_v3_small}
+  - name: shufflenet_v2_x1_0
+    args: {model: shufflenet_v2_x1_0}
+  - name: efficientnet_b0
+    args: {model: efficientnet_b0}
+  - name: mobilenetv4_conv_small
+    args: {model: mobilenetv4_conv_small}
+  - name: repvit_m0_9
+    args: {model: repvit_m0_9}

@@ -28,6 +28,8 @@ from hccr.models import load_model_from_run
 _NEGATED_BOOLEAN_TRAIN_OPTIONS = {
     "reparameterize_depthwise": "--no-reparameterize-depthwise",
     "persistent_workers": "--no-persistent-workers",
+    "gate_use_gap": "--no-gate-use-gap",
+    "gate_detach_gap": "--no-gate-detach-gap",
 }
 
 

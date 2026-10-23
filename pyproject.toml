@@ -29,6 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tda = ["gudhi>=3.10", "numpy>=1.26"]
+modern = ["timm>=1.0"]
 
 [project.urls]
 Homepage = "https://github.com/Zephyrus000/hccr-deep-learning"
@@ -46,11 +47,11 @@ where = ["src"]
 
 [tool.black]
 line-length = 88
-target-version = ["py314"]
+target-version = ["py312"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py314"
+target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]

@@ -4,6 +4,11 @@
 `TrainingConfig`, creates run-scoped data/model state, trains and evaluates the
 best checkpoint, and persists artifacts needed for analysis and deployment.
 
+For the official HWDB difficulty-aware classifier study, follow
+[Run the official classifier experiments](../../../docs/classifier_experiments.md).
+It covers audited data, paired frozen-backbone pilots, calibration allocation,
+residual fine-tuning, backbone comparisons, and objective controls.
+
 ## Public API
 
 | Symbol | Purpose |
@@ -112,9 +117,10 @@ with zero workers, multiprocessing-only options are omitted from the loader.
 
 The run log prints validation top-1/top-5/macro/tail recall every epoch. Test
 metrics are emitted only in `final_test` after training for the selected
-checkpoint. Writer IDs are unavailable in the current Kaggle-derived image
-export, so artifacts record writer separation as `not_verifiable`, not as a
-verified writer-disjoint split.
+checkpoint. Writer IDs are unavailable in legacy Kaggle-derived image exports,
+so their artifacts record writer separation as `not_verifiable`. Official
+proposal runs require audited GNT sources and verified HWDB writer separation.
+The audit separately records whether CASIA/ICDAR identities can be reconciled.
 
 `resource_profile.json` keeps MACs and FLOPs as distinct quantities. MACs count
 convolution, linear, and declared fixed-filter multiply--accumulates. FLOPs are

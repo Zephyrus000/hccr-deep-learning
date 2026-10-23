@@ -15,7 +15,13 @@ from hccr.benchmarking import (
     build_benchmark_protocol,
     summarize_timings,
 )
-from hccr.models import MODEL_NAMES, build_model, optimize_model_for_inference
+from hccr.models import (
+    MODEL_NAMES,
+    build_model,
+    load_model_from_run,
+    optimize_model_for_inference,
+    read_checkpoint_metadata,
+)
 
 NAME = "benchmark"
 HELP = "Benchmark eager or optimized inference across supported precisions."
@@ -23,6 +29,11 @@ HELP = "Benchmark eager or optimized inference across supported precisions."
 
 def configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument(
+        "--run-dir",
+        type=Path,
+        help="Load the exact architecture and checkpoint from run artifacts.",
+    )
     parser.add_argument(
         "--mode",
         choices=("eager", "optimized"),
@@ -105,6 +116,27 @@ def run(arguments: argparse.Namespace) -> int:
         raise ValueError("CUDA graph benchmarking requires CUDA")
     if arguments.device == "cpu":
         torch.set_num_threads(arguments.cpu_threads)
+    if arguments.run_dir is not None and arguments.checkpoint is not None:
+        raise ValueError("choose run-dir or a standalone checkpoint")
+    if arguments.run_dir is not None:
+        stored = read_checkpoint_metadata(arguments.run_dir)
+        arguments.image_size = int(stored["preprocess"]["image_size"])
+        for name in (
+            "num_classes",
+            "classification_head",
+            "embedding_dim",
+            "logit_scale",
+            "angular_margin",
+            "width",
+            "stem_stride",
+            "reparameterize_depthwise",
+        ):
+            if name in stored["model"]:
+                setattr(arguments, name, stored["model"][name])
+        arguments.model = stored["model"]["name"]
+        arguments.stage_depths = stored["model"].get(
+            "stage_depths", arguments.stage_depths
+        )
     model = _build_benchmark_model(arguments)
     if arguments.checkpoint is not None:
         model.load_state_dict(
@@ -172,6 +204,7 @@ def run(arguments: argparse.Namespace) -> int:
         "stem_stride": arguments.stem_stride,
         "reparameterize_depthwise": arguments.reparameterize_depthwise,
         "classification_head": arguments.classification_head,
+        "classifier_structure": getattr(model, "classifier_structure", "dense"),
         "logit_scale": arguments.logit_scale,
         "angular_margin": arguments.angular_margin,
         "warmup_iterations": arguments.warmup_iterations,
@@ -196,6 +229,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _build_benchmark_model(arguments: argparse.Namespace) -> torch.nn.Module:
+    if getattr(arguments, "run_dir", None) is not None:
+        return load_model_from_run(arguments.run_dir)
     classifier_options = {
         "classification_head": arguments.classification_head,
         "embedding_dim": arguments.embedding_dim,
@@ -234,7 +269,13 @@ def _prepare_benchmark_model(
 
 def _shared_inference_behavior(model: torch.nn.Module) -> list[str]:
     behavior = ["model_eval", "torch_inference_mode"]
-    if getattr(model, "classification_head", None) in {"cosface", "arcface"}:
+    if getattr(model, "classifier_structure", "dense") != "dense":
+        behavior.append("factorized_classifier_with_scalar_norm_cache")
+    elif getattr(model, "classification_head", None) in {
+        "cosface",
+        "arcface",
+        "normalized_softmax",
+    }:
         behavior.append("cache_normalized_classifier_weight")
     return behavior
 

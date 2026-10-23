@@ -229,3 +229,7 @@ __marimo__/
 # AGENTS
 AGENTS.md
 CLAUDE.md
+
+# Artifacts, Experiments
+artifacts/
+experiments/

@@ -23,6 +23,13 @@ _EFFICIENT_HCCR_KEYS = {
     "classification_head",
     "logit_scale",
     "angular_margin",
+    "classifier_structure",
+    "classifier_rank",
+    "residual_class_indices",
+    "gate_kind",
+    "gate_use_gap",
+    "gate_detach_gap",
+    "normalization_eps",
 }
 _BASELINE_KEYS = {
     "in_channels",
@@ -30,6 +37,13 @@ _BASELINE_KEYS = {
     "embedding_dim",
     "logit_scale",
     "angular_margin",
+    "classifier_structure",
+    "classifier_rank",
+    "residual_class_indices",
+    "gate_kind",
+    "gate_use_gap",
+    "gate_detach_gap",
+    "normalization_eps",
 }
 
 
@@ -45,9 +59,7 @@ def load_model_from_run(
     original_num_classes = int(stored["num_classes"])
     target_num_classes = num_classes_override or original_num_classes
     model = build_model_from_metadata(metadata, num_classes=target_num_classes)
-    state = torch.load(
-        run_dir / "checkpoint.pt", map_location="cpu", weights_only=True
-    )
+    state = torch.load(run_dir / "checkpoint.pt", map_location="cpu", weights_only=True)
     if target_num_classes == original_num_classes:
         model.load_state_dict(state)
     else:
@@ -84,6 +96,10 @@ def build_model_from_metadata(
     if "stage_depths" in kwargs:
         kwargs["stage_depths"] = tuple(kwargs["stage_depths"])
     resolved_classes = int(num_classes or stored["num_classes"])
+    if resolved_classes != int(stored["num_classes"]) and kwargs.get(
+        "residual_class_indices"
+    ):
+        raise ValueError("residual class indices require the original class mapping")
     return build_model(model_name, num_classes=resolved_classes, **kwargs)
 
 

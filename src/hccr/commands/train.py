@@ -96,9 +96,46 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--classification-head",
-        choices=("cosface", "arcface", "softmax"),
+        choices=("cosface", "arcface", "softmax", "normalized_softmax"),
         default="cosface",
     )
+    parser.add_argument(
+        "--classifier-structure",
+        choices=("dense", "low_rank", "static_residual", "dynamic_residual"),
+        default="dense",
+    )
+    parser.add_argument("--classifier-rank", type=int, default=64)
+    parser.add_argument("--residual-mask", type=Path)
+    parser.add_argument("--residual-class-indices", type=int, nargs="*", default=())
+    parser.add_argument(
+        "--gate-kind",
+        choices=("hadamard", "cosine", "sample", "global", "class"),
+        default="hadamard",
+    )
+    parser.add_argument(
+        "--gate-use-gap", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument(
+        "--gate-detach-gap", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument("--normalization-eps", type=float, default=1e-6)
+    parser.add_argument("--residual-regularization", type=float, default=0.0)
+    parser.add_argument("--gate-regularization", type=float, default=0.0)
+    parser.add_argument("--initialize-from-run", type=Path)
+    parser.add_argument(
+        "--checkpoint-selection",
+        choices=("best_validation", "final"),
+        default="best_validation",
+    )
+    parser.add_argument(
+        "--freeze-backbone", action=argparse.BooleanOptionalAction, default=False
+    )
+    parser.add_argument(
+        "--require-official-data", action=argparse.BooleanOptionalAction, default=False
+    )
+    parser.add_argument("--train-rotation-degrees", type=float, default=8.0)
+    parser.add_argument("--train-translate-ratio", type=float, default=0.08)
+    parser.add_argument("--train-blur-probability", type=float, default=0.1)
     parser.add_argument("--label-smoothing", type=float, default=0.0)
     parser.add_argument("--logit-scale", type=float, default=32.0)
     parser.add_argument("--angular-margin", type=float, default=0.1)
@@ -130,6 +167,12 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--augmentation-backend", choices=("cpu", "gpu"), default="cpu")
+    parser.add_argument(
+        "--training-cache", choices=("none", "auto", "cpu", "cuda"), default="none"
+    )
+    parser.add_argument("--training-cache-max-gib", type=float, default=32.0)
+    parser.add_argument("--training-cache-reserve-gib", type=float, default=16.0)
     parser.add_argument(
         "--dataset-backend",
         choices=("auto", "filesystem", "lmdb"),
@@ -206,6 +249,23 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         stem_stride=arguments.stem_stride,
         reparameterize_depthwise=arguments.reparameterize_depthwise,
         classification_head=arguments.classification_head,
+        classifier_structure=arguments.classifier_structure,
+        classifier_rank=arguments.classifier_rank,
+        residual_mask=arguments.residual_mask,
+        residual_class_indices=tuple(arguments.residual_class_indices),
+        gate_kind=arguments.gate_kind,
+        gate_use_gap=arguments.gate_use_gap,
+        gate_detach_gap=arguments.gate_detach_gap,
+        normalization_eps=arguments.normalization_eps,
+        residual_regularization=arguments.residual_regularization,
+        gate_regularization=arguments.gate_regularization,
+        initialize_from_run=arguments.initialize_from_run,
+        checkpoint_selection=arguments.checkpoint_selection,
+        freeze_backbone=arguments.freeze_backbone,
+        require_official_data=arguments.require_official_data,
+        train_rotation_degrees=arguments.train_rotation_degrees,
+        train_translate_ratio=arguments.train_translate_ratio,
+        train_blur_probability=arguments.train_blur_probability,
         label_smoothing=arguments.label_smoothing,
         logit_scale=arguments.logit_scale,
         angular_margin=arguments.angular_margin,
@@ -216,6 +276,10 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         distributed_backend=arguments.distributed_backend,
         seed=arguments.seed,
         num_workers=arguments.num_workers,
+        augmentation_backend=arguments.augmentation_backend,
+        training_cache=arguments.training_cache,
+        training_cache_max_gib=arguments.training_cache_max_gib,
+        training_cache_reserve_gib=arguments.training_cache_reserve_gib,
         dataset_backend=arguments.dataset_backend,
         lmdb_path=arguments.lmdb_path,
         dataloader_start_method=arguments.dataloader_start_method,

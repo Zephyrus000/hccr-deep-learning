@@ -151,6 +151,22 @@ def _mean_flops(
     return _shape_numel(input_shape)
 
 
+def _reduction_flops(input_shape, *args, out_shape=None, **kwargs):
+    return max(_shape_numel(input_shape) - _output_elements(out_shape), 0)
+
+
+def _matrix_vector_flops(matrix_shape, vector_shape, *args, **kwargs):
+    return 2 * _shape_numel(matrix_shape)
+
+
+def _top_two_flops(input_shape, k, dim=-1, *args, out_shape=None, **kwargs):
+    """Worst-case comparisons for a linear two-largest scan, not kernel timing."""
+    if k != 2:
+        raise ValueError("top-k FLOP accounting currently supports only k=2")
+    width = input_shape[dim]
+    return (_shape_numel(input_shape) // width) * max(2 * width - 3, 0)
+
+
 def _max_pool_flops(
     _input_shape: Any,
     kernel_size: Any,
@@ -197,6 +213,7 @@ def _adaptive_average_pool_flops(
 
 _CUSTOM_FLOP_MAPPING: dict[Any, Callable[..., int]] = {
     _aten.mm: _matrix_multiply_flops,
+    _aten.mv: _matrix_vector_flops,
     _aten.addmm: _add_matrix_multiply_flops,
     _aten.convolution: _convolution_flops,
     _aten._convolution: _convolution_flops,
@@ -210,6 +227,12 @@ _CUSTOM_FLOP_MAPPING: dict[Any, Callable[..., int]] = {
     _aten.sub: _elementwise_formula(1),
     _aten.mul: _elementwise_formula(1),
     _aten.div: _elementwise_formula(1),
+    _aten.pow: _elementwise_formula(1),
+    _aten.sqrt: _elementwise_formula(1),
+    _aten.lt: _elementwise_formula(1),
+    _aten.any: _reduction_flops,
+    _aten.sum: _reduction_flops,
+    _aten.topk: _top_two_flops,
     _aten.relu: _elementwise_formula(1),
     _aten.relu_: _elementwise_formula(1),
     _aten.sigmoid: _elementwise_formula(4),
@@ -239,6 +262,17 @@ _ZERO_ARITHMETIC_FLOP_OPERATORS = {
     _aten.transpose,
     _aten.view,
     _aten.zeros,
+    _aten._local_scalar_dense,
+    _aten._to_copy,
+    _aten.index,
+    _aten.index_copy,
+    _aten.index_put,
+    _aten.nonzero,
+    _aten.permute,
+    _aten.select,
+    _aten.unbind,
+    _aten.unsqueeze,
+    _aten.new_full,
 }
 
 
@@ -350,6 +384,8 @@ def flop_counting_conventions(image_size: int, input_channels: int) -> dict[str,
         },
         "pooling": "reduction additions/divisions or comparisons are counted",
         "cached_angular_weight_normalization": "excluded from per-sample inference",
+        "top_two_scores": "worst-case 2*C-3 comparisons for linear top-two selection",
+        "power_and_square_root": "one scalar operation per output element",
         "data_movement": (
             "view, transpose, split, concatenate and copy operations contribute "
             "zero arithmetic FLOPs; their cost is captured by latency"

@@ -15,7 +15,11 @@ from torchvision.models import (
     shufflenet_v2_x1_0,
 )
 
-from hccr.models.heads import AngularMarginClassifier
+from hccr.models.heads import (
+    AngularMarginClassifier,
+    FactorizedClassifier,
+    build_classifier,
+)
 
 
 class TorchvisionClassifierBaseline(nn.Module):
@@ -59,7 +63,7 @@ class TorchvisionClassifierBaseline(nn.Module):
                 f"{self.effective_input_channels} channel(s)"
             )
         embeddings = self.embedding_projection(self.backbone(inputs))
-        if isinstance(self.classifier, AngularMarginClassifier):
+        if isinstance(self.classifier, (AngularMarginClassifier, FactorizedClassifier)):
             return self.classifier(embeddings, targets, margin_multiplier)
         return self.classifier(embeddings)
 
@@ -81,6 +85,7 @@ def build_resnet18(
     embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
+    **head_options,
 ) -> nn.Module:
     """Build the standard ResNet-18 reference model without pretrained weights."""
     _validate_classifier_arguments(num_classes=num_classes, in_channels=in_channels)
@@ -105,6 +110,7 @@ def build_resnet18(
         embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
+        **head_options,
     )
 
 
@@ -116,6 +122,7 @@ def build_mobilenet_v3_small(
     embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
+    **head_options,
 ) -> nn.Module:
     """Build the standard MobileNetV3-Small reference model without weights."""
     _validate_classifier_arguments(num_classes=num_classes, in_channels=in_channels)
@@ -140,6 +147,7 @@ def build_mobilenet_v3_small(
         embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
+        **head_options,
     )
 
 
@@ -151,6 +159,7 @@ def build_shufflenet_v2_x1_0(
     embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
+    **head_options,
 ) -> nn.Module:
     """Build the standard ShuffleNetV2 1.0x reference model without weights."""
     _validate_classifier_arguments(num_classes=num_classes, in_channels=in_channels)
@@ -175,6 +184,7 @@ def build_shufflenet_v2_x1_0(
         embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
+        **head_options,
     )
 
 
@@ -186,6 +196,7 @@ def build_efficientnet_b0(
     embedding_dim: int | None = None,
     logit_scale: float = 32.0,
     angular_margin: float = 0.1,
+    **head_options,
 ) -> nn.Module:
     """Build the standard EfficientNet-B0 reference model without weights."""
     _validate_classifier_arguments(num_classes=num_classes, in_channels=in_channels)
@@ -210,11 +221,12 @@ def build_efficientnet_b0(
         embedding_dim=embedding_dim,
         logit_scale=logit_scale,
         angular_margin=angular_margin,
+        **head_options,
     )
 
 
 def build_baseline_model(name: str, **kwargs: object) -> nn.Module:
-    """Build a supported torchvision reference classifier."""
+    """Build a supported reference classifier without pretrained weights."""
     if name == "resnet18":
         return build_resnet18(**kwargs)  # type: ignore[arg-type]
     if name == "mobilenet_v3_small":
@@ -223,9 +235,51 @@ def build_baseline_model(name: str, **kwargs: object) -> nn.Module:
         return build_shufflenet_v2_x1_0(**kwargs)  # type: ignore[arg-type]
     if name == "efficientnet_b0":
         return build_efficientnet_b0(**kwargs)  # type: ignore[arg-type]
+    if name in {"mobilenetv4_conv_small", "repvit_m0_9"}:
+        return build_modern_baseline(name=name, **kwargs)  # type: ignore[arg-type]
     raise ValueError(
         "baseline model must be resnet18, mobilenet_v3_small, "
-        "shufflenet_v2_x1_0, or efficientnet_b0"
+        "shufflenet_v2_x1_0, efficientnet_b0, mobilenetv4_conv_small, or repvit_m0_9"
+    )
+
+
+def build_modern_baseline(
+    *,
+    name: str,
+    num_classes: int,
+    in_channels: int = 1,
+    classification_head: str = "softmax",
+    embedding_dim: int | None = 320,
+    logit_scale: float = 32.0,
+    angular_margin: float = 0.1,
+    **head_options,
+) -> nn.Module:
+    """Build an optional timm backbone with the common HCCR projection and head."""
+    _validate_classifier_arguments(num_classes=num_classes, in_channels=in_channels)
+    try:
+        from timm import create_model
+    except ImportError as error:
+        raise ImportError(
+            "Modern HCCR baselines require timm; install with "
+            "python -m pip install -e '.[modern]'"
+        ) from error
+    backbone = create_model(
+        name,
+        pretrained=False,
+        num_classes=0,
+        in_chans=in_channels,
+        global_pool="avg",
+    )
+    return _wrap_baseline(
+        name=name,
+        backbone=backbone,
+        classifier=nn.Linear(backbone.num_features, num_classes),
+        in_channels=in_channels,
+        classification_head=classification_head,
+        embedding_dim=320 if embedding_dim is None else embedding_dim,
+        logit_scale=logit_scale,
+        angular_margin=angular_margin,
+        **head_options,
     )
 
 
@@ -246,8 +300,14 @@ def _wrap_baseline(
     embedding_dim: int | None,
     logit_scale: float,
     angular_margin: float,
+    **head_options,
 ) -> TorchvisionClassifierBaseline:
-    if classification_head not in {"softmax", "cosface", "arcface"}:
+    if classification_head not in {
+        "softmax",
+        "cosface",
+        "arcface",
+        "normalized_softmax",
+    }:
         raise ValueError("classification_head must be cosface, arcface, or softmax")
     if embedding_dim is not None and embedding_dim < 1:
         raise ValueError("embedding_dim must be positive when set")
@@ -261,30 +321,33 @@ def _wrap_baseline(
             resolved_embedding_dim,
             bias=False,
         )
-        resolved_classifier = (
-            nn.Linear(resolved_embedding_dim, final_linear.out_features)
-            if classification_head == "softmax"
-            else AngularMarginClassifier(
-                resolved_embedding_dim,
-                final_linear.out_features,
-                classification_head,
-                logit_scale,
-                angular_margin,
-            )
+        resolved_classifier = build_classifier(
+            resolved_embedding_dim,
+            final_linear.out_features,
+            classification_head,
+            logit_scale,
+            angular_margin,
+            **head_options,
         )
-    elif classification_head == "softmax":
+    elif (
+        classification_head == "softmax"
+        and head_options.get("classifier_structure", "dense") == "dense"
+    ):
         embedding_projection = nn.Identity()
         resolved_classifier = classifier
+        if head_options.get("residual_class_indices"):
+            raise ValueError("dense classifier cannot have selected residual classes")
     else:
         embedding_projection = _classifier_prefix(classifier)
-        resolved_classifier = AngularMarginClassifier(
+        resolved_classifier = build_classifier(
             final_linear.in_features,
             final_linear.out_features,
             classification_head,
             logit_scale,
             angular_margin,
+            **head_options,
         )
-    return TorchvisionClassifierBaseline(
+    model = TorchvisionClassifierBaseline(
         name=name,
         backbone=backbone,
         embedding_projection=embedding_projection,
@@ -300,6 +363,18 @@ def _wrap_baseline(
         logit_scale=logit_scale,
         angular_margin=angular_margin,
     )
+    defaults = dict(
+        classifier_structure="dense",
+        classifier_rank=64,
+        residual_class_indices=(),
+        gate_kind="hadamard",
+        gate_use_gap=True,
+        gate_detach_gap=True,
+        normalization_eps=1e-6,
+    )
+    for key, value in (defaults | head_options).items():
+        setattr(model, key, value)
+    return model
 
 
 def _final_linear(classifier: nn.Module) -> nn.Linear:

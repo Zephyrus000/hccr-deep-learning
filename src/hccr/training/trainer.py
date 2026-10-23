@@ -11,6 +11,7 @@ import torch
 from torch import nn
 from tqdm.auto import tqdm
 
+from hccr.preprocessing.batch import TensorBatchAugmenter
 from hccr.training.diagnostics import ArchitectureDiagnostics
 from hccr.training.distributed import DistributedContext, unwrap_model
 from hccr.training.precision import PrecisionContext
@@ -27,11 +28,21 @@ def train_epoch(
     max_batches: int | None = None,
     distributed: DistributedContext | None = None,
     precision: PrecisionContext | None = None,
+    *,
+    residual_regularization: float = 0.0,
+    gate_regularization: float = 0.0,
+    freeze_backbone: bool = False,
+    batch_augmenter: TensorBatchAugmenter | None = None,
 ) -> dict[str, Any]:
     model.train()
     base_model = unwrap_model(model)
+    if freeze_backbone:
+        base_model.eval()
+        base_model.classifier.train()
     is_main_process = distributed is None or distributed.is_main_process
     total_loss = 0.0
+    total_classification_loss = 0.0
+    total_regularization_loss = 0.0
     total_samples = 0
     loss_values: list[float] = []
     gradient_norms: list[float] = []
@@ -59,6 +70,8 @@ def train_epoch(
             batch_started_at = time.perf_counter()
             data_loading_seconds += batch_started_at - previous_batch_finished
             images, targets = images.to(device), targets.to(device)
+            if batch_augmenter is not None:
+                images, metadata = batch_augmenter(images.float())
             optimizer.zero_grad(set_to_none=True)
             training_logits = getattr(base_model, "training_logits", None)
             with precision.autocast():
@@ -67,7 +80,16 @@ def train_epoch(
                     if training_logits is not None
                     else model(images)
                 )
-            loss = criterion(logits.float(), targets)
+            classification_loss = criterion(logits.float(), targets)
+            regularization_loss = classification_loss.new_zeros(())
+            if residual_regularization or gate_regularization:
+                regularize = getattr(base_model.classifier, "regularization_loss", None)
+                if regularize is None:
+                    raise ValueError("regularization requires a factorized classifier")
+                regularization_loss = regularize(
+                    residual_regularization, gate_regularization
+                )
+            loss = classification_loss + regularization_loss
             precision.backward(loss)
             precision.unscale_(optimizer)
             architecture_diagnostics.record_gradients()
@@ -83,6 +105,8 @@ def train_epoch(
             optimizer_steps += int(optimizer_stepped)
             forward_backward_seconds += time.perf_counter() - batch_started_at
             total_loss += loss.item() * targets.numel()
+            total_classification_loss += classification_loss.item() * targets.numel()
+            total_regularization_loss += regularization_loss.item() * targets.numel()
             total_samples += targets.numel()
             loss_values.append(loss.item())
             encoded_augmentations = (
@@ -108,6 +132,8 @@ def train_epoch(
         raise ValueError("training loader produced no samples")
     local_metrics = {
         "loss_sum": total_loss,
+        "classification_loss_sum": total_classification_loss,
+        "regularization_loss_sum": total_regularization_loss,
         "sample_count": total_samples,
         "batch_loss_sum": sum(loss_values),
         "batch_loss_squared_sum": sum(value**2 for value in loss_values),
@@ -168,6 +194,14 @@ def _aggregate_epoch_metrics(rank_metrics: list[dict[str, Any]]) -> dict[str, An
     )
     return {
         "train_loss": total_loss / total_samples,
+        "train_classification_loss": sum(
+            float(m.get("classification_loss_sum", m["loss_sum"])) for m in rank_metrics
+        )
+        / total_samples,
+        "train_regularization_loss": sum(
+            float(m.get("regularization_loss_sum", 0.0)) for m in rank_metrics
+        )
+        / total_samples,
         "batch_loss_mean": batch_loss_mean,
         "batch_loss_std": math.sqrt(batch_loss_variance),
         "gradient_norm_mean": gradient_norm_sum / total_steps,

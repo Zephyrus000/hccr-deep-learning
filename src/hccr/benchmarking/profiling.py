@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import platform
 import statistics
 import time
@@ -122,10 +123,30 @@ def _profile_model(
         )
         for batch_size in (1,)
     ]
+    serialized = io.BytesIO()
+    torch.save(model.state_dict(), serialized)
+    classifier = getattr(model, "classifier", None)
+    classifier_cache = getattr(classifier, "_deployment_cache", None)
+    cache_bytes = (
+        sum(t.numel() * t.element_size() for t in classifier_cache[1])
+        if classifier_cache is not None
+        else 0
+    )
+    normalized_weight_cache = getattr(classifier, "_normalized_weight", None)
+    if normalized_weight_cache is not None:
+        cache_bytes += (
+            normalized_weight_cache.numel() * normalized_weight_cache.element_size()
+        )
     profile = {
         "schema_version": 2,
         "model_name": getattr(model, "name", type(model).__name__),
         "classification_head": getattr(model, "classification_head", "softmax"),
+        "classifier_structure": getattr(model, "classifier_structure", "dense"),
+        "serialized_state_dict_bytes": serialized.tell(),
+        "persistent_buffer_bytes": sum(
+            t.numel() * t.element_size() for t in model.buffers()
+        ),
+        "classifier_deployment_cache_bytes": cache_bytes,
         "device": device,
         "effective_input_channels": getattr(model, "effective_input_channels", 1),
         "backbone_output_channels": getattr(model, "backbone_output_channels", None),
@@ -267,6 +288,15 @@ def project_classifier_cost(
     if num_classes < 2:
         raise ValueError("full-class projection requires at least two classes")
     classifier = getattr(model, "classifier", None)
+    if callable(getattr(classifier, "inference_macs", None)):
+        return {
+            "status": "unavailable",
+            "reason": (
+                "factorized class allocation cannot be projected to another "
+                "vocabulary without a new mask; use measured model costs"
+            ),
+            "num_classes": num_classes,
+        }
     if isinstance(classifier, nn.Sequential):
         linear = next(
             (
@@ -344,8 +374,10 @@ def _mac_coverage(model: nn.Module) -> dict[str, Any]:
     for module in model.modules():
         if len(tuple(module.children())) > 0:
             continue
-        if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Linear)) or callable(
-            getattr(module, "fixed_filter_macs", None)
+        if (
+            isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Linear))
+            or callable(getattr(module, "fixed_filter_macs", None))
+            or callable(getattr(module, "inference_macs", None))
         ):
             counted_types.add(type(module).__name__)
         else:
@@ -412,6 +444,9 @@ def estimate_macs_by_component(
             )
         elif isinstance(module, nn.Linear):
             operation_macs = output.numel() * module.in_features
+        elif callable(getattr(module, "inference_macs", None)):
+            operation_macs = output.shape[0] * module.inference_macs()
+            operation_macs += getattr(module, "last_forward_extra_macs", 0)
         else:
             fixed_filter_macs = getattr(module, "fixed_filter_macs", None)
             if callable(fixed_filter_macs):
@@ -427,6 +462,7 @@ def estimate_macs_by_component(
         for module in model.modules()
         if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Linear))
         or callable(getattr(module, "fixed_filter_macs", None))
+        or callable(getattr(module, "inference_macs", None))
     ]
     try:
         with torch.inference_mode():

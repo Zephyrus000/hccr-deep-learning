@@ -29,10 +29,120 @@ The required columns are:
 | `writer_id` | Writer identity when known; an empty value is allowed. |
 | `unicode_label` | Character label associated with the class ID. |
 | `class_id` | Original integer class identifier. |
-| `split` | `train`, `validation`, or `test`. |
+| `split` | `train`, `calibration`, `validation`, `test`, or `icdar`. |
 
 For GNT sources, `record_offset` is also required. The pair `source_file` and
 `record_offset` identifies a record; many images share one GNT file.
+
+## Proposal protocols
+
+Use the official proposal presets for the difficulty-aware classifier study.
+The older presets below keep their original split policy for reproducibility.
+The primary protocol uses HWDB1.0 and HWDB1.1 official training/test sources,
+filters to the 3,755 GB2312 level-1 characters, and retains ICDAR 2013 as a
+separate endpoint. All sources are original GNT records. Kaggle JPEG exports
+and their checkpoints are excluded from this study.
+
+```powershell
+python scripts/build_casia_manifest.py --protocol hwdb1.0-1.1-official
+```
+
+The expected source directories are `HWDB1.0_Train`, `HWDB1.1_Train`,
+`HWDB1.0_Test`, `HWDB1.1_Test`, and `ICDAR2013_Test`, under `data/raw`.
+The output is `data/processed/hwdb1_0-1_1_official_five_splits`.
+Use `--without-icdar` to prepare only the HWDB endpoints; this writes
+`data/processed/hwdb1_0-1_1_official_four_splits`.
+
+Official training writers are assigned approximately 80% to `train`, 10% to
+`calibration`, and 10% to `validation`, using seed `20261022`. Splitting is
+stratified by source-version membership. A writer occurring in several files
+or versions stays in one split. Each class must have fit and calibration
+support; a build fails rather than adjusting splits using model predictions.
+The report freezes the exact writer lists, class support, and per-version
+sample counts. Official HWDB test records never enter development splits.
+
+The optional larger-vocabulary protocol needs an audited JSON list containing
+the canonical 7,185 Unicode labels, or a `class_mapping_full.json` with those
+labels. A class count alone cannot establish which 7,185 labels are canonical.
+The builder checks vocabulary membership and complete fit/calibration support.
+It never removes an unexplained 7,186th class automatically.
+
+```powershell
+python scripts/build_casia_manifest.py --protocol hwdb1.0-1.2-official --vocabulary docs/canonical_hwdb_7185.json
+```
+
+This reads separate `HWDB1.0`, `HWDB1.1`, and `HWDB1.2` train/test directories
+and writes `data/processed/hwdb1_0-1_2_official_four_splits`. ICDAR is optional
+via `--icdar-dir` and remains a 3,755-class subset endpoint. Its addition changes
+the output suffix to `_five_splits`.
+
+For merged source directories, repeat `--train-dir` and `--test-dir` and pass
+`--source-version-map versions.json`. The JSON object maps source files or
+directory prefixes relative to `--data-root` to `HWDB1.0`, `HWDB1.1`, or
+`HWDB1.2`. A more specific file entry overrides a directory entry. For example:
+
+```json
+{
+  "HWDB1.0-1.1_Train/1001-f.gnt": "HWDB1.1",
+  "HWDB1.0-1.1_Test/1241-f.gnt": "HWDB1.1"
+}
+```
+
+The map must cover every file whose version is ambiguous. Fill it from the
+original archive inventory or source metadata. The builder does not infer a
+version from numerical writer ranges. Every requested version must occur in
+both official train and official test sources.
+
+For the merged directories in this checkout, use their paths explicitly after
+preparing the source-version map:
+
+```powershell
+python scripts/build_casia_manifest.py --protocol hwdb1.0-1.1-official --train-dir data/raw/HWDB1.0-1.1_Train --test-dir data/raw/HWDB1.0-1.1_Test --source-version-map versions.json
+```
+
+Schema 4 adds `source_version`, `official_partition`, `source_writer_id`, and
+`dataset_protocol` to every row. `writer_id` is the global identity used for
+splitting; `source_writer_id` preserves the filename identity. A source metadata
+crosswalk may be supplied with `--writer-identity-map identities.json`:
+
+```json
+{
+  "icdar2013:C001": "casia:verified-source-writer-id"
+}
+```
+
+Only populate that map with identities supported by source evidence. Without
+a complete competition crosswalk, the native `icdar2013:C001` namespace stays
+unchanged and the report records
+`icdar_identity_reconciliation=unverified_source_namespace_ids`. It verifies
+HWDB writer separation and native pixel separation but does not claim that
+different CASIA/ICDAR namespaces prove different people. The overall
+`writer_disjoint_verified` field is `null` in that case; the HWDB-only field is
+`hwdb_writer_disjoint_verified=true`. Competition writer-cluster uncertainty
+must use only identities that can be verified. A supplied crosswalk that
+reveals overlap causes the build to fail.
+
+Before official-protocol training, `validate_training_manifest` checks the
+manifest and class-map SHA-256 hashes, schema, split and source provenance,
+class coverage, exact class support and version counts, and pixel audit coverage.
+Validation, HWDB test, and ICDAR may contain fewer classes than the vocabulary;
+every vocabulary class requires support in fit and calibration.
+`audit_report.json`
+contains `manifest_digest` and `label_mapping_digest`, source SHA-256 values,
+the frozen writer lists, and support counts. Preserve the report alongside the
+manifest and class map. A legacy or modified manifest cannot claim a new
+official protocol without this audit.
+
+The rebuild helper defaults to the primary protocol; inspect its plan first:
+
+```powershell
+python scripts/run_hwdb_manifest_rebuild.py --plan-only
+python scripts/run_hwdb_manifest_rebuild.py --include-secondary --secondary-vocabulary docs/canonical_hwdb_7185.json --plan-only
+```
+
+Remove `--plan-only` only when ready to scan the source data. Preparation does
+not train models. The helper refuses existing output directories and publishes
+job status under `artifacts/hwdb-mapping-rebuild-20261022` by default.
 
 ## Prepare official CASIA GNT datasets
 

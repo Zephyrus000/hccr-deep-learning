@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import math
 import os
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from random import getstate as random_state
 from random import seed as random_seed
 from random import setstate as restore_random_state
 
 import torch
-from torch.utils.data import DataLoader, DistributedSampler, Subset
+from torch.utils.data import DataLoader, DistributedSampler, RandomSampler, Subset
 
 from hccr.artifacts import RunArtifacts, new_run_id, write_json
 from hccr.artifacts.checkpoints import (
@@ -28,6 +29,7 @@ from hccr.evaluation.evaluator import evaluate
 from hccr.evaluation.reports import save_learning_curves
 from hccr.models import MODEL_NAMES, build_model
 from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
+from hccr.preprocessing.batch import TensorBatchAugmenter
 from hccr.preprocessing.gallery import save_gallery
 from hccr.training.callbacks import EarlyStopping
 from hccr.training.diagnostics import (
@@ -43,8 +45,17 @@ from hccr.training.distributed import (
     unwrap_model,
     wrap_model_for_training,
 )
+from hccr.training.input_cache import build_training_cache
 from hccr.training.losses import build_classification_loss
 from hccr.training.precision import PRECISION_NAMES, PrecisionContext, resolve_precision
+from hccr.training.proposal import (
+    classifier_options,
+    initialize_training_model,
+    manifest_class_labels,
+    resolve_residual_mask,
+    validate_allocation_initialization,
+    validate_official_source,
+)
 from hccr.training.trainer import train_epoch
 from hccr.utils import close_logging, configure_logging, resolve_device
 
@@ -72,6 +83,23 @@ class TrainingConfig:
     stem_stride: int = 2
     reparameterize_depthwise: bool = True
     classification_head: str = "cosface"
+    classifier_structure: str = "dense"
+    classifier_rank: int = 64
+    residual_mask: Path | None = None
+    residual_class_indices: tuple[int, ...] = ()
+    gate_kind: str = "hadamard"
+    gate_use_gap: bool = True
+    gate_detach_gap: bool = True
+    normalization_eps: float = 1e-6
+    residual_regularization: float = 0.0
+    gate_regularization: float = 0.0
+    initialize_from_run: Path | None = None
+    checkpoint_selection: str = "best_validation"
+    freeze_backbone: bool = False
+    require_official_data: bool = False
+    train_rotation_degrees: float = 8.0
+    train_translate_ratio: float = 0.08
+    train_blur_probability: float = 0.1
     label_smoothing: float = 0.0
     logit_scale: float = 32.0
     angular_margin: float = 0.1
@@ -82,6 +110,10 @@ class TrainingConfig:
     distributed_backend: str = "auto"
     seed: int = 7
     num_workers: int = 0
+    augmentation_backend: str = "cpu"
+    training_cache: str = "none"
+    training_cache_max_gib: float = 32.0
+    training_cache_reserve_gib: float = 16.0
     dataset_backend: str = "auto"
     lmdb_path: Path | None = None
     dataloader_start_method: str = "auto"
@@ -147,8 +179,34 @@ def _run_training(
 ) -> dict[str, float]:
     reproducibility = _configure_reproducibility(config, distributed.rank)
     device = distributed.device
+    if (
+        config.augmentation_backend == "gpu"
+        and not config.freeze_backbone
+        and not device.startswith("cuda")
+    ):
+        raise ValueError("GPU augmentation requires a CUDA training device")
     manifest_rows = read_manifest(config.manifest_path)
     writer_info = validate_training_manifest(config.manifest_path, manifest_rows)
+    if len(manifest_class_labels(manifest_rows)) != config.num_classes:
+        raise ValueError("num_classes differs from the manifest vocabulary")
+    if config.require_official_data:
+        validate_official_source(config.manifest_path, manifest_rows)
+    allocation = None
+    if config.residual_mask is not None:
+        allocation = resolve_residual_mask(
+            config.residual_mask, config.manifest_path, manifest_rows
+        )
+        config = replace(
+            config, residual_class_indices=tuple(allocation["residual_class_indices"])
+        )
+        if (
+            config.initialize_from_run is None
+            or file_digest(config.initialize_from_run / "checkpoint.pt")
+            != allocation["provenance"]["low_rank"]["checkpoint_digest"]
+        ):
+            raise ValueError(
+                "residual training must initialize from its allocation's low-rank pilot"
+            )
     run_id = distributed.broadcast_object(
         new_run_id() if distributed.is_main_process else None
     )
@@ -173,6 +231,8 @@ def _run_training(
             },
             run_id,
         )
+        if allocation is not None:
+            write_json(output_dir / "residual_allocation.json", allocation)
     distributed.barrier()
     class_id_map = (
         select_class_subset(
@@ -182,7 +242,16 @@ def _run_training(
         else None
     )
     active_num_classes = config.max_classes or config.num_classes
-    train_transform = TrainPreprocessor(config.image_size)
+    train_transform = (
+        EvalPreprocessor(config.image_size)
+        if config.freeze_backbone or config.augmentation_backend == "gpu"
+        else TrainPreprocessor(
+            config.image_size,
+            rotation_degrees=config.train_rotation_degrees,
+            translate_ratio=config.train_translate_ratio,
+            blur_probability=config.train_blur_probability,
+        )
+    )
     train_set = HCCRDataset(
         config.manifest_path,
         "train",
@@ -251,12 +320,15 @@ def _run_training(
         )
         saved_random_state = random_state()
         random_seed(config.seed)
-        _save_preprocessing_gallery(
-            train_set,
-            train_transform,
-            output_dir,
-            "augmentation_gallery.png",
-        )
+        if config.augmentation_backend == "gpu" and not config.freeze_backbone:
+            _save_tensor_augmentation_gallery(train_set, config, device, output_dir)
+        else:
+            _save_preprocessing_gallery(
+                train_set,
+                train_transform,
+                output_dir,
+                "augmentation_gallery.png",
+            )
         restore_random_state(saved_random_state)
     if config.max_train_samples is not None:
         train_set = Subset(
@@ -290,6 +362,14 @@ def _run_training(
     generator = torch.Generator().manual_seed(config.seed + distributed.rank)
     loader_options = _data_loader_options(config, device)
     train_sampler = _train_sampler(train_set, config, distributed)
+    order_generator = None
+    if not distributed.enabled and (
+        config.augmentation_backend == "gpu"
+        or config.training_cache != "none"
+        or config.freeze_backbone
+    ):
+        order_generator = torch.Generator()
+        train_sampler = RandomSampler(train_set, generator=order_generator)
     if distributed.is_main_process:
         logger.info(
             "data loader workers=%s start_method=%s persistent=%s prefetch=%s "
@@ -379,11 +459,77 @@ def _run_training(
             **loader_options,
         )
     model = _build_training_model(config, active_num_classes).to(device)
+    if config.initialize_from_run is not None:
+        initialization = initialize_training_model(
+            model,
+            config.initialize_from_run,
+            config.manifest_path,
+            manifest_class_labels(manifest_rows),
+        )
+        if allocation is not None:
+            validate_allocation_initialization(
+                allocation, config.initialize_from_run, initialization
+            )
+        if distributed.is_main_process:
+            write_json(output_dir / "initialization.json", initialization)
+    if config.freeze_backbone:
+        for name, parameter in model.named_parameters():
+            if not name.startswith("classifier."):
+                parameter.requires_grad_(False)
+    cache_info = {"requested_placement": "none", "status": "disabled"}
+    if config.training_cache != "none":
+        cached_loader, cache_info = build_training_cache(
+            train_set,
+            config.batch_size,
+            device,
+            placement=config.training_cache,
+            max_gib=config.training_cache_max_gib,
+            reserve_gib=config.training_cache_reserve_gib,
+            seed=config.seed,
+            num_workers=min(config.num_workers, 4),
+            model=model,
+            image_size=config.image_size,
+        )
+        if cached_loader is not None:
+            train_loader = cached_loader
+    batch_augmenter = (
+        TensorBatchAugmenter(
+            config.image_size,
+            rotation_degrees=config.train_rotation_degrees,
+            translate_ratio=config.train_translate_ratio,
+            blur_probability=config.train_blur_probability,
+            seed=config.seed,
+        )
+        if config.augmentation_backend == "gpu" and not config.freeze_backbone
+        else None
+    )
+    if distributed.is_main_process:
+        write_json(
+            output_dir / "input_pipeline.json",
+            {
+                "schema_version": 1,
+                "cache": cache_info,
+                "augmentation": batch_augmenter.metadata()
+                if batch_augmenter is not None
+                else {
+                    "backend": "deterministic_eval"
+                    if config.freeze_backbone
+                    else "pil_affine_v1"
+                },
+                "fit_only": True,
+                "manifest_digest": file_digest(config.manifest_path),
+            },
+        )
+        logger.info("training input cache=%s", cache_info)
     distributed.barrier()
     training_model = wrap_model_for_training(model, distributed)
     base_model = unwrap_model(training_model)
     optimizer = torch.optim.AdamW(
-        training_model.parameters(),
+        (
+            parameter
+            for parameter in training_model.parameters()
+            if parameter.requires_grad
+        ),
         lr=training_plan.resolved_learning_rate,
         weight_decay=config.weight_decay,
     )
@@ -400,8 +546,14 @@ def _run_training(
     latest_validation_metrics: dict[str, float] | None = None
     global_step = 0
     for epoch in range(1, training_plan.resolved_epochs + 1):
-        if train_sampler is not None:
+        if distributed.enabled and train_sampler is not None:
             train_sampler.set_epoch(epoch)
+        if order_generator is not None:
+            order_generator.manual_seed(config.seed + epoch)
+        if hasattr(train_loader, "set_epoch"):
+            train_loader.set_epoch(epoch)
+        if batch_augmenter is not None:
+            batch_augmenter.set_epoch(epoch)
         remaining_steps = training_plan.total_optimizer_steps - global_step
         max_batches = min(training_plan.steps_per_epoch, remaining_steps)
         margin_multiplier = _margin_multiplier(
@@ -421,6 +573,10 @@ def _run_training(
             max_batches,
             distributed,
             precision,
+            residual_regularization=config.residual_regularization,
+            gate_regularization=config.gate_regularization,
+            freeze_backbone=config.freeze_backbone,
+            batch_augmenter=batch_augmenter,
         )
         optimizer_step_start = global_step
         global_step += int(train_metrics["optimizer_steps"])
@@ -464,7 +620,11 @@ def _run_training(
             write_training_diagnostics(output_dir, curves)
             write_json(output_dir / "validation_stability.json", validation_stability)
             save_learning_curves(output_dir, curves, evaluation_name=selection_split)
-            if validation_metrics["top1"] >= best_validation_metrics["top1"]:
+            if (
+                config.checkpoint_selection == "final"
+                or epoch == 1
+                or validation_metrics["top1"] > best_validation_metrics["top1"]
+            ):
                 best_validation_metrics = validation_metrics
                 artifacts.save_checkpoint(
                     base_model,
@@ -481,6 +641,8 @@ def _run_training(
                         class_id_map,
                         distributed,
                         precision,
+                        epoch=epoch,
+                        completed_optimizer_steps=global_step,
                     ),
                 )
                 logger.info("best checkpoint saved epoch=%s", epoch)
@@ -530,6 +692,11 @@ def _run_training(
         should_stop = bool(distributed.broadcast_object(should_stop))
         if should_stop:
             break
+    if config.training_cache != "none":
+        del train_loader, cached_loader
+        gc.collect()
+        if device.startswith("cuda"):
+            torch.cuda.empty_cache()
     distributed.barrier()
     final_metrics = None
     if distributed.is_main_process:
@@ -667,6 +834,9 @@ def _run_training(
             config.benchmark_warmup_iterations,
             config.benchmark_iterations,
             config.benchmark_repetitions,
+            active_num_classes
+            if config.require_official_data or config.classifier_structure != "dense"
+            else 7186,
         )
         resource_profile["checkpoint_name"] = selected_checkpoint_name
         resource_profile["measurement_stage"] = "selected_checkpoint"
@@ -725,14 +895,32 @@ def _checkpoint_metadata(
     class_id_map: dict[int, int] | None,
     distributed: DistributedContext,
     precision: PrecisionContext,
+    *,
+    epoch: int | None = None,
+    completed_optimizer_steps: int | None = None,
 ) -> dict[str, object]:
     head = getattr(model, "classification_head", "softmax")
     has_margin_head = head in {"cosface", "arcface"}
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "model": _model_metadata(model, config, active_num_classes),
         "training": {
             "loss": "cross_entropy",
+            "seed": config.seed,
+            "optimizer": "adamw",
+            "weight_decay": config.weight_decay,
+            "completed_optimizer_steps": completed_optimizer_steps,
+            "freeze_backbone": config.freeze_backbone,
+            "max_train_samples": config.max_train_samples,
+            "overfit_check": config.overfit_check,
+            "residual_regularization": config.residual_regularization,
+            "gate_regularization": config.gate_regularization,
+            "initialization_run": str(config.initialize_from_run)
+            if config.initialize_from_run
+            else None,
+            "allocation_digest": file_digest(output_dir / "residual_allocation.json")
+            if config.residual_mask
+            else None,
             "label_smoothing": config.label_smoothing,
             "margin_schedule": "linear_warmup" if has_margin_head else "disabled",
             "margin_warmup_ratio": (
@@ -761,10 +949,30 @@ def _checkpoint_metadata(
             "resolved_learning_rate": training_plan.resolved_learning_rate,
             "lr_warmup_ratio": config.lr_warmup_ratio,
             "warmup_steps": training_plan.warmup_steps,
-            "augmentation": "random_affine_and_blur",
+            "augmentation": "deterministic_eval"
+            if config.freeze_backbone
+            else (
+                "tensor_affine_v1"
+                if config.augmentation_backend == "gpu"
+                else "random_affine_and_blur"
+            ),
+            "augmentation_backend": config.augmentation_backend,
+            "training_cache": config.training_cache,
+            "training_cache_max_gib": config.training_cache_max_gib,
+            "training_cache_reserve_gib": config.training_cache_reserve_gib,
+            "augmentation_parameters": {
+                "rotation_degrees": config.train_rotation_degrees,
+                "translate_ratio": config.train_translate_ratio,
+                "blur_probability": config.train_blur_probability,
+            },
         },
         "preprocess": {"image_size": config.image_size, "margin": 4},
-        "selection": {"split": selection_split, "metrics": validation_metrics},
+        "selection": {
+            "split": selection_split,
+            "metrics": validation_metrics,
+            "epoch": epoch,
+            "policy": config.checkpoint_selection,
+        },
         "test": {
             "split": "test" if has_test_set else None,
             "status": "not_run",
@@ -922,6 +1130,26 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("bn_recalibration_batches must be non-negative")
     if config.num_workers < 0:
         raise ValueError("num_workers must be non-negative")
+    if config.augmentation_backend not in {"cpu", "gpu"}:
+        raise ValueError("augmentation_backend must be cpu or gpu")
+    if config.training_cache not in {"none", "auto", "cpu", "cuda"}:
+        raise ValueError("unsupported training_cache placement")
+    if (
+        not math.isfinite(config.training_cache_max_gib)
+        or config.training_cache_max_gib <= 0
+        or not math.isfinite(config.training_cache_reserve_gib)
+        or config.training_cache_reserve_gib < 0
+    ):
+        raise ValueError(
+            "training cache budget must be positive and reserve nonnegative"
+        )
+    if config.training_cache != "none":
+        if config.distributed:
+            raise ValueError("training cache supports one process per GPU; disable DDP")
+        if config.augmentation_backend == "cpu" and not config.freeze_backbone:
+            raise ValueError(
+                "training cache requires GPU augmentation or a frozen pilot"
+            )
     if config.dataset_backend not in {"auto", "filesystem", "lmdb"}:
         raise ValueError("dataset_backend must be one of: auto, filesystem, lmdb")
     if config.dataloader_start_method not in {"auto", "spawn"}:
@@ -947,8 +1175,92 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("embedding_dim must be positive when set")
     if not 0 <= config.dropout < 1:
         raise ValueError("dropout must be in [0, 1)")
-    if config.classification_head not in {"cosface", "arcface", "softmax"}:
-        raise ValueError("classification_head must be cosface, arcface, or softmax")
+    if config.classification_head not in {
+        "cosface",
+        "arcface",
+        "softmax",
+        "normalized_softmax",
+    }:
+        raise ValueError("unsupported classification_head")
+    if config.classifier_structure not in {
+        "dense",
+        "low_rank",
+        "static_residual",
+        "dynamic_residual",
+    }:
+        raise ValueError("unsupported classifier_structure")
+    if (
+        config.classifier_structure != "dense"
+        and config.classification_head == "softmax"
+    ):
+        raise ValueError(
+            "factorized heads require normalized_softmax, cosface or arcface"
+        )
+    if config.classifier_rank < 1:
+        raise ValueError("classifier_rank must be positive")
+    if config.normalization_eps <= 0:
+        raise ValueError("normalization_eps must be positive")
+    if min(config.residual_regularization, config.gate_regularization) < 0:
+        raise ValueError("regularization coefficients must be non-negative")
+    if config.gate_kind not in {"hadamard", "cosine", "sample", "global", "class"}:
+        raise ValueError("unsupported gate_kind")
+    if config.classifier_structure == "dense" and (
+        config.residual_regularization or config.gate_regularization
+    ):
+        raise ValueError("dense heads do not have residual/gate regularization")
+    if config.freeze_backbone and config.bn_recalibration_batches:
+        raise ValueError("frozen pilots cannot recalibrate backbone BatchNorm")
+    if config.initialize_from_run is not None and config.max_classes is not None:
+        raise ValueError("checkpoint initialization requires the full manifest mapping")
+    if (
+        config.require_official_data
+        and config.classifier_structure.endswith("residual")
+        and config.residual_mask is None
+    ):
+        raise ValueError("official residual runs require an audited allocation mask")
+    if config.residual_mask is not None and config.max_classes is not None:
+        raise ValueError("residual masks require the full manifest class mapping")
+    if config.residual_mask is not None and config.residual_class_indices:
+        raise ValueError("choose residual_mask or residual_class_indices, not both")
+    if (
+        config.classifier_structure.endswith("residual")
+        and config.residual_mask is None
+        and not config.residual_class_indices
+    ):
+        raise ValueError(
+            "residual heads require a residual mask or explicit class indices"
+        )
+    if config.classifier_structure in {"dense", "low_rank"} and (
+        config.residual_mask or config.residual_class_indices
+    ):
+        raise ValueError("only residual heads accept a residual mask")
+    if config.require_official_data and config.max_classes is not None:
+        raise ValueError(
+            "official proposal runs require the complete audited vocabulary"
+        )
+    if config.require_official_data and (
+        config.max_train_samples is not None or config.overfit_check
+    ):
+        raise ValueError(
+            "official proposal runs cannot use limited/overfit training samples"
+        )
+    if config.freeze_backbone and config.initialize_from_run is None:
+        raise ValueError("frozen-backbone pilots require initialize_from_run")
+    if config.checkpoint_selection not in {"best_validation", "final"}:
+        raise ValueError("invalid checkpoint_selection")
+    if config.freeze_backbone and (
+        config.checkpoint_selection != "final"
+        or config.early_stopping_patience is not None
+    ):
+        raise ValueError(
+            "paired frozen pilots require final checkpoints and disabled early stopping"
+        )
+    if (
+        config.train_rotation_degrees < 0
+        or not 0 <= config.train_translate_ratio <= 1
+        or not 0 <= config.train_blur_probability <= 1
+    ):
+        raise ValueError("invalid training augmentation settings")
     if not 0 <= config.label_smoothing < 1:
         raise ValueError("label_smoothing must be in [0, 1)")
     if config.logit_scale <= 0:
@@ -970,6 +1282,7 @@ def _build_training_model(config: TrainingConfig, num_classes: int) -> torch.nn.
             embedding_dim=config.embedding_dim,
             logit_scale=config.logit_scale,
             angular_margin=config.angular_margin,
+            **classifier_options(config),
         )
     return build_model(
         config.model,
@@ -984,6 +1297,7 @@ def _build_training_model(config: TrainingConfig, num_classes: int) -> torch.nn.
         classification_head=config.classification_head,
         logit_scale=config.logit_scale,
         angular_margin=config.angular_margin,
+        **classifier_options(config),
     )
 
 
@@ -997,6 +1311,7 @@ def _model_metadata(
         "effective_input_channels": getattr(model, "effective_input_channels", 1),
         "classification_head": getattr(model, "classification_head", "softmax"),
         "num_classes": num_classes,
+        **classifier_options(config),
     }
     if config.model != "efficient_hccr":
         metadata.update(
@@ -1267,6 +1582,41 @@ def _cosine_warmup_factor(
     progress = min(1.0, max(0.0, (step - warmup_steps) / decay_steps))
     return minimum_factor + (1.0 - minimum_factor) * 0.5 * (
         1.0 + math.cos(math.pi * progress)
+    )
+
+
+def _save_tensor_augmentation_gallery(
+    dataset: HCCRDataset, config: TrainingConfig, device: str, output_dir: Path
+) -> None:
+    from torchvision.transforms.v2 import functional as vision_functional
+
+    rows = list({row["unicode_label"]: row for row in dataset.rows[:64]}.values())[:8]
+    if not rows:
+        return
+    images = [dataset.load_image(row) for row in rows]
+    transform = EvalPreprocessor(config.image_size)
+    inputs = torch.stack(
+        [
+            vision_functional.to_dtype(
+                vision_functional.to_image(transform(image)), torch.float32, scale=True
+            )
+            for image in images
+        ]
+    ).to(device)
+    augmenter = TensorBatchAugmenter(
+        config.image_size,
+        rotation_degrees=config.train_rotation_degrees,
+        translate_ratio=config.train_translate_ratio,
+        blur_probability=config.train_blur_probability,
+        seed=config.seed,
+    )
+    outputs, _ = augmenter(inputs)
+    processed = iter(vision_functional.to_pil_image(tensor.cpu()) for tensor in outputs)
+    save_gallery(
+        images,
+        lambda _image: next(processed),
+        output_dir / "augmentation_gallery.png",
+        [_unicode_codepoint(row["unicode_label"]) for row in rows],
     )
 
 

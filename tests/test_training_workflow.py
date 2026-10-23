@@ -133,7 +133,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertEqual(checkpoint_metadata["model"]["dropout"], 0.1)
             self.assertEqual(checkpoint_metadata["model"]["stem_stride"], 2)
             self.assertTrue(checkpoint_metadata["model"]["reparameterize_depthwise"])
-            self.assertEqual(checkpoint_metadata["schema_version"], 8)
+            self.assertEqual(checkpoint_metadata["schema_version"], 9)
             self.assertEqual(
                 checkpoint_metadata["model"]["classification_head"], "cosface"
             )
@@ -151,6 +151,19 @@ class TrainingWorkflowTests(unittest.TestCase):
                 checkpoint_metadata["training"],
                 {
                     "loss": "cross_entropy",
+                    "seed": 7,
+                    "optimizer": "adamw",
+                    "weight_decay": 0.0001,
+                    "completed_optimizer_steps": checkpoint_metadata["selection"][
+                        "epoch"
+                    ],
+                    "freeze_backbone": False,
+                    "max_train_samples": None,
+                    "overfit_check": False,
+                    "residual_regularization": 0.0,
+                    "gate_regularization": 0.0,
+                    "initialization_run": None,
+                    "allocation_digest": None,
                     "label_smoothing": 0.05,
                     "margin_schedule": "linear_warmup",
                     "margin_warmup_ratio": 0.2,
@@ -185,6 +198,15 @@ class TrainingWorkflowTests(unittest.TestCase):
                     "lr_warmup_ratio": 0.0,
                     "warmup_steps": 0,
                     "augmentation": "random_affine_and_blur",
+                    "augmentation_backend": "cpu",
+                    "training_cache": "none",
+                    "training_cache_max_gib": 32.0,
+                    "training_cache_reserve_gib": 16.0,
+                    "augmentation_parameters": {
+                        "rotation_degrees": 8.0,
+                        "translate_ratio": 0.08,
+                        "blur_probability": 0.1,
+                    },
                 },
             )
             self.assertEqual(

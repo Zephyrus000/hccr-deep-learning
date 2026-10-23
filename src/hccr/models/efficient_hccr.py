@@ -10,7 +10,11 @@ from torch.nn import functional as F
 from torch.nn.utils.fusion import fuse_conv_bn_eval
 
 from hccr.models.baselines import build_baseline_model
-from hccr.models.heads import AngularMarginClassifier
+from hccr.models.heads import (
+    AngularMarginClassifier,
+    FactorizedClassifier,
+    build_classifier,
+)
 
 MODEL_NAMES = (
     "efficient_hccr",
@@ -18,6 +22,8 @@ MODEL_NAMES = (
     "mobilenet_v3_small",
     "shufflenet_v2_x1_0",
     "efficientnet_b0",
+    "mobilenetv4_conv_small",
+    "repvit_m0_9",
 )
 
 
@@ -166,6 +172,13 @@ class EfficientHCCRNet(nn.Module):
         classification_head: str = "cosface",
         logit_scale: float = 32.0,
         angular_margin: float = 0.1,
+        classifier_structure: str = "dense",
+        classifier_rank: int = 64,
+        residual_class_indices=(),
+        gate_kind: str = "hadamard",
+        gate_use_gap: bool = True,
+        gate_detach_gap: bool = True,
+        normalization_eps: float = 1e-6,
     ) -> None:
         super().__init__()
         if in_channels != 1:
@@ -180,7 +193,12 @@ class EfficientHCCRNet(nn.Module):
             raise ValueError("backbone_output_channels must be positive when set")
         if embedding_dim is not None and embedding_dim < 1:
             raise ValueError("embedding_dim must be positive when set")
-        if classification_head not in {"cosface", "arcface", "softmax"}:
+        if classification_head not in {
+            "cosface",
+            "arcface",
+            "softmax",
+            "normalized_softmax",
+        }:
             raise ValueError("classification_head must be cosface, arcface, or softmax")
         self.name = "efficient_hccr"
         self.stage_depths, self.width = stage_depths, width
@@ -240,17 +258,27 @@ class EfficientHCCRNet(nn.Module):
                 bias=False,
             )
         )
-        self.classifier: nn.Module
-        if classification_head == "softmax":
-            self.classifier = nn.Linear(self.embedding_dim, num_classes)
-        else:
-            self.classifier = AngularMarginClassifier(
-                self.embedding_dim,
-                num_classes,
-                classification_head,
-                logit_scale,
-                angular_margin,
-            )
+        self.classifier_structure = classifier_structure
+        self.classifier_rank = classifier_rank
+        self.residual_class_indices = tuple(residual_class_indices)
+        self.gate_kind = gate_kind
+        self.gate_use_gap = gate_use_gap
+        self.gate_detach_gap = gate_detach_gap
+        self.normalization_eps = normalization_eps
+        self.classifier = build_classifier(
+            self.embedding_dim,
+            num_classes,
+            classification_head,
+            logit_scale,
+            angular_margin,
+            classifier_structure=classifier_structure,
+            classifier_rank=classifier_rank,
+            residual_class_indices=residual_class_indices,
+            gate_kind=gate_kind,
+            gate_use_gap=gate_use_gap,
+            gate_detach_gap=gate_detach_gap,
+            normalization_eps=normalization_eps,
+        )
 
     def forward_features(
         self, inputs: torch.Tensor, *, return_stages: bool = False
@@ -287,7 +315,7 @@ class EfficientHCCRNet(nn.Module):
         the complete forward/backward graph instead of bypassing its reducer.
         """
         embeddings = self._forward_embedding(inputs)
-        if isinstance(self.classifier, AngularMarginClassifier):
+        if isinstance(self.classifier, (AngularMarginClassifier, FactorizedClassifier)):
             return self.classifier(embeddings, targets, margin_multiplier)
         return self.classifier(embeddings)
 
