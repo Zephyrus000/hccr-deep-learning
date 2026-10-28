@@ -270,10 +270,13 @@ def build_modern_baseline(
         in_chans=in_channels,
         global_pool="avg",
     )
+    output_features = (
+        getattr(backbone, "head_hidden_size", None) or backbone.num_features
+    )
     return _wrap_baseline(
         name=name,
         backbone=backbone,
-        classifier=nn.Linear(backbone.num_features, num_classes),
+        classifier=nn.Linear(output_features, num_classes),
         in_channels=in_channels,
         classification_head=classification_head,
         embedding_dim=320 if embedding_dim is None else embedding_dim,

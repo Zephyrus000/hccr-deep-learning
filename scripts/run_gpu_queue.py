@@ -16,6 +16,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--stage-configs",
+        action="store_true",
+        help="Finish every job from each config before starting the next config",
+    )
     arguments = parser.parse_args(argv)
     state = run_gpu_queue(
         arguments.config,
@@ -23,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
         arguments.output_dir,
         execute=arguments.execute,
         resume=arguments.resume,
+        stage_configs=arguments.stage_configs,
     )
     print(
         json.dumps(

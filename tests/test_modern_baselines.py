@@ -13,6 +13,38 @@ from hccr.models.heads import FactorizedClassifier
 
 
 class ModernBaselineTests(unittest.TestCase):
+    def test_pooled_head_width_can_differ_from_spatial_feature_width(self):
+        def create_backbone(*args, **kwargs):
+            backbone = nn.Sequential(
+                nn.Conv2d(1, 24, 1), nn.AdaptiveAvgPool2d(1), nn.Flatten(1)
+            )
+            backbone.num_features = 12
+            backbone.head_hidden_size = 24
+            return backbone
+
+        with patch.dict(
+            sys.modules, {"timm": SimpleNamespace(create_model=create_backbone)}
+        ):
+            options = dict(
+                num_classes=7, classification_head="cosface", embedding_dim=320
+            )
+            model = build_model("mobilenetv4_conv_small", **options)
+            sample, targets = torch.rand(2, 1, 16, 16), torch.tensor([0, 6])
+            logits = model(sample, targets)
+            self.assertEqual(logits.shape, (2, 7))
+            loss = nn.functional.cross_entropy(logits, targets)
+            loss.backward()
+            self.assertTrue(torch.isfinite(loss))
+            self.assertIsNotNone(model.embedding_projection.weight.grad)
+            restored = build_model_from_metadata(
+                {"model": {"name": "mobilenetv4_conv_small", **options}}
+            )
+            restored.load_state_dict(model.state_dict())
+            model.eval()
+            restored.eval()
+            with torch.inference_mode():
+                torch.testing.assert_close(model(sample), restored(sample))
+
     def test_optional_dependency_failure_names_install_extra(self):
         with (
             patch.dict(sys.modules, {"timm": None}),
@@ -76,3 +108,17 @@ class ModernBaselineTests(unittest.TestCase):
                 self.assertEqual(logits.shape, (1, 7))
                 self.assertEqual(model.embedding_dim, 320)
                 self.assertTrue(torch.isfinite(logits).all())
+                restored = build_model_from_metadata(
+                    {
+                        "model": {
+                            "name": name,
+                            "num_classes": 7,
+                            "classification_head": "softmax",
+                        }
+                    }
+                ).eval()
+                restored.load_state_dict(model.state_dict())
+                with torch.inference_mode():
+                    torch.testing.assert_close(
+                        restored(torch.zeros(1, 1, 96, 96)), logits
+                    )

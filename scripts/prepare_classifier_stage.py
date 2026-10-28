@@ -39,8 +39,29 @@ def prepare_classifier_stage(
     dense_pilot_run: Path | None = None,
     near_budget_k: int | None = None,
     near_budget_pilot_run: Path | None = None,
+    runtime_profile: str = "gpu",
+    precision: str = "float32",
+    dataset_backend: str | None = None,
+    include_gate_controls: bool = False,
 ) -> dict:
     """Resolve architecture and checkpoint identity before writing runnable YAML."""
+    if runtime_profile not in {"gpu", "cpu"}:
+        raise ValueError("runtime_profile must be gpu or cpu")
+    if precision not in {"float32", "bfloat16"}:
+        raise ValueError("precision must be float32 or bfloat16")
+    if dataset_backend not in {None, "auto", "filesystem", "lmdb"}:
+        raise ValueError("dataset_backend must be auto, filesystem, or lmdb")
+    if device not in {"auto", "cpu", "cuda"}:
+        raise ValueError("device must be auto, cpu, or cuda")
+    if runtime_profile == "cpu" and (device == "cuda" or precision != "float32"):
+        raise ValueError("the cpu runtime profile requires CPU and float32")
+    if runtime_profile == "gpu" and device == "cpu":
+        raise ValueError("use runtime_profile=cpu for CPU execution")
+    if include_gate_controls and stage != "residuals":
+        raise ValueError("gate controls are only available for the residuals stage")
+    resolved_backend = dataset_backend or (
+        "lmdb" if runtime_profile == "gpu" else "auto"
+    )
     if stage == "pilots" and any(
         value is not None for value in (mask, dense_pilot_run, near_budget_pilot_run)
     ):
@@ -95,16 +116,24 @@ def prepare_classifier_stage(
             "optimizer_step_policy": "configured_epochs",
             "learning_rate_scaling": "none",
             "weight_decay": 1e-4,
-            "device": device,
-            "precision": "float32",
-            "dataset_backend": "auto",
-            "num_workers": 0,
+            "device": "cpu" if runtime_profile == "cpu" else device,
+            "precision": precision,
+            "dataset_backend": resolved_backend,
+            "num_workers": 8 if runtime_profile == "gpu" else 0,
+            "augmentation_backend": "gpu"
+            if runtime_profile == "gpu" and stage == "residuals"
+            else "cpu",
+            "training_cache": "auto" if runtime_profile == "gpu" else "none",
+            "training_cache_max_gib": 32.0,
+            "training_cache_reserve_gib": 16.0,
             "require_official_data": True,
             "evaluation_policy": "validation_only",
             "initialize_from_run": str(source_run),
             "early_stopping_patience": 0,
             "reproducibility_mode": "strict",
             "scheduler": "cosine",
+            "scheduler_min_lr": 1e-6,
+            "lr_warmup_ratio": 0.05,
             "margin_warmup_ratio": 0.1,
             "train_rotation_degrees": 7.0,
             "train_translate_ratio": 0.05,
@@ -246,6 +275,25 @@ def prepare_classifier_stage(
                 },
             }
         )
+    if include_gate_controls:
+        for name, kind in (
+            ("learned_global_gate", "global"),
+            ("learned_class_gate", "class"),
+            ("sample_only_gate", "sample"),
+            ("cosine_only_gate", "cosine"),
+            ("hadamard_no_gap", "hadamard"),
+        ):
+            variants.append(
+                {
+                    "name": name,
+                    "args": {
+                        "classifier_structure": "dynamic_residual",
+                        "gate_kind": kind,
+                        "gate_use_gap": False,
+                        "gate_detach_gap": True,
+                    },
+                }
+            )
     checkpoint_id = file_digest(source_run / "checkpoint.pt")[:8]
     if stage == "pilots":
         checkpoint_id += f"-rank{rank}"
@@ -257,6 +305,9 @@ def prepare_classifier_stage(
         checkpoint_id += "-dense" + file_digest(dense_pilot_run / "checkpoint.pt")[:8]
     if near_budget_pilot_run is not None:
         checkpoint_id += "-" + file_digest(near_budget_pilot_run / "checkpoint.pt")[:8]
+    checkpoint_id += f"-{runtime_profile}-{precision}-{resolved_backend}"
+    if include_gate_controls:
+        checkpoint_id += "-gatecontrols"
     return {
         "experiment_id": f"official-{stage}-seed{resolved_seed}-{checkpoint_id}",
         "manifest": str(manifest),
@@ -281,6 +332,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rank", type=int, default=64)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--runtime-profile", choices=("gpu", "cpu"), default="gpu")
+    parser.add_argument(
+        "--precision", choices=("float32", "bfloat16"), default="float32"
+    )
+    parser.add_argument("--dataset-backend", choices=("auto", "filesystem", "lmdb"))
+    parser.add_argument("--include-gate-controls", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     config = prepare_classifier_stage(
@@ -294,6 +351,10 @@ def main(argv: list[str] | None = None) -> int:
         dense_pilot_run=args.dense_pilot_run,
         near_budget_k=args.near_budget_k,
         near_budget_pilot_run=args.near_budget_pilot_run,
+        runtime_profile=args.runtime_profile,
+        precision=args.precision,
+        dataset_backend=args.dataset_backend,
+        include_gate_controls=args.include_gate_controls,
     )
     protected = {
         args.manifest.resolve(),
@@ -318,6 +379,10 @@ def main(argv: list[str] | None = None) -> int:
                 "configuration": str(args.output),
                 "jobs": len(config["variants"]),
                 "training_started": False,
+                "runtime_profile": args.runtime_profile,
+                "precision": config["base_args"]["precision"],
+                "dataset_backend": config["base_args"]["dataset_backend"],
+                "include_gate_controls": args.include_gate_controls,
             }
         )
     )

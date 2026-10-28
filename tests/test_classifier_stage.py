@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import torch
-from scripts.prepare_classifier_stage import prepare_classifier_stage
+import yaml
+from scripts.prepare_classifier_stage import main, prepare_classifier_stage
 
 from hccr.artifacts.checkpoints import file_digest
 from hccr.cli import build_parser
@@ -83,6 +86,15 @@ class ClassifierStageTests(unittest.TestCase):
                 self.assertEqual(candidate.seed, 17)
                 self.assertFalse(candidate.gate_use_gap)
                 self.assertFalse(candidate.gate_detach_gap)
+                self.assertEqual(candidate.precision, "float32")
+                self.assertEqual(candidate.dataset_backend, "lmdb")
+                self.assertEqual(candidate.num_workers, 8)
+                self.assertEqual(candidate.training_cache, "auto")
+                self.assertEqual(candidate.training_cache_max_gib, 32.0)
+                self.assertEqual(candidate.training_cache_reserve_gib, 16.0)
+                self.assertEqual(candidate.augmentation_backend, "cpu")
+                self.assertEqual(candidate.lr_warmup_ratio, 0.05)
+                self.assertEqual(candidate.scheduler_min_lr, 1e-6)
             with self.assertRaisesRegex(ValueError, "seed"):
                 prepare_classifier_stage("pilots", source, manifest, seed=29)
             with self.assertRaisesRegex(ValueError, "rank"):
@@ -97,6 +109,63 @@ class ClassifierStageTests(unittest.TestCase):
             self.assertNotEqual(config["experiment_id"], budget_config["experiment_id"])
             other_rank = prepare_classifier_stage("pilots", source, manifest, rank=32)
             self.assertNotEqual(config["experiment_id"], other_rank["experiment_id"])
+            cpu = prepare_classifier_stage(
+                "pilots", source, manifest, runtime_profile="cpu"
+            )
+            self.assertEqual(cpu["base_args"]["device"], "cpu")
+            self.assertEqual(cpu["base_args"]["precision"], "float32")
+            self.assertEqual(cpu["base_args"]["dataset_backend"], "auto")
+            self.assertEqual(cpu["base_args"]["num_workers"], 0)
+            self.assertEqual(cpu["base_args"]["training_cache"], "none")
+            self.assertNotEqual(config["experiment_id"], cpu["experiment_id"])
+            with self.assertRaisesRegex(ValueError, "residuals stage"):
+                prepare_classifier_stage(
+                    "pilots", source, manifest, include_gate_controls=True
+                )
+            for options, message in (
+                ({"runtime_profile": "other"}, "runtime_profile"),
+                ({"precision": "auto"}, "precision"),
+                ({"dataset_backend": "other"}, "dataset_backend"),
+                ({"runtime_profile": "cpu", "precision": "bfloat16"}, "float32"),
+                ({"runtime_profile": "cpu", "device": "cuda"}, "CPU"),
+                ({"device": "cpu"}, "runtime_profile=cpu"),
+            ):
+                with (
+                    self.subTest(options=options),
+                    self.assertRaisesRegex(ValueError, message),
+                ):
+                    prepare_classifier_stage("pilots", source, manifest, **options)
+            output = root / "gpu-pilots.yaml"
+            report = io.StringIO()
+            with redirect_stdout(report):
+                self.assertEqual(
+                    main(
+                        [
+                            "--stage",
+                            "pilots",
+                            "--source-run",
+                            str(source),
+                            "--manifest",
+                            str(manifest),
+                            "--runtime-profile",
+                            "gpu",
+                            "--precision",
+                            "bfloat16",
+                            "--dataset-backend",
+                            "filesystem",
+                            "--output",
+                            str(output),
+                        ]
+                    ),
+                    0,
+                )
+            written = yaml.safe_load(output.read_text(encoding="utf-8"))
+            self.assertEqual(written["base_args"]["dataset_backend"], "filesystem")
+            self.assertEqual(written["base_args"]["precision"], "bfloat16")
+            self.assertTrue(written["base_args"]["freeze_backbone"])
+            self.assertFalse(json.loads(report.getvalue())["training_started"])
+            self.assertEqual(json.loads(report.getvalue())["precision"], "bfloat16")
+            self.assertNotEqual(config["experiment_id"], written["experiment_id"])
 
     def test_residual_configs_include_references_and_do_not_collide_across_masks(self):
         labels = list("一二三四五六七")
@@ -246,6 +315,50 @@ class ClassifierStageTests(unittest.TestCase):
                 _validate_training_config(candidate)
                 self.assertFalse(candidate.freeze_backbone)
                 self.assertEqual(candidate.epochs, 30)
+                self.assertEqual(candidate.precision, "float32")
+                self.assertEqual(candidate.augmentation_backend, "gpu")
+                self.assertEqual(candidate.dataset_backend, "lmdb")
+                self.assertEqual(candidate.training_cache, "auto")
+                self.assertEqual(candidate.num_workers, 8)
+            controlled = prepare_classifier_stage(
+                "residuals",
+                sources["low_rank"],
+                manifest,
+                mask=mask_path,
+                dense_pilot_run=sources["dense"],
+                near_budget_pilot_run=sources["near_budget"],
+                precision="bfloat16",
+                include_gate_controls=True,
+            )
+            controlled_jobs = jobs_for(controlled)
+            self.assertEqual(len(controlled_jobs), 10)
+            self.assertNotEqual(config["experiment_id"], controlled["experiment_id"])
+            expected_controls = {
+                "learned_global_gate": "global",
+                "learned_class_gate": "class",
+                "sample_only_gate": "sample",
+                "cosine_only_gate": "cosine",
+                "hadamard_no_gap": "hadamard",
+            }
+            for job in controlled_jobs:
+                candidate = config_from_arguments(
+                    build_parser().parse_args(
+                        list(job.command[job.command.index("train") :])
+                    )
+                )
+                _validate_training_config(candidate)
+                self.assertEqual(candidate.precision, "bfloat16")
+                self.assertEqual(candidate.augmentation_backend, "gpu")
+                if job.variant in expected_controls:
+                    self.assertEqual(candidate.classifier_structure, "dynamic_residual")
+                    self.assertEqual(
+                        candidate.gate_kind, expected_controls[job.variant]
+                    )
+                    self.assertFalse(candidate.gate_use_gap)
+                    self.assertEqual(candidate.residual_mask, mask_path)
+                    self.assertEqual(candidate.initialize_from_run, sources["low_rank"])
+                    self.assertEqual(candidate.residual_regularization, 1e-4)
+                    self.assertEqual(candidate.gate_regularization, 0.0)
             mask["residual_class_indices"] = [1]
             mask_path.write_text(json.dumps(mask), encoding="utf-8")
             other = prepare_classifier_stage(

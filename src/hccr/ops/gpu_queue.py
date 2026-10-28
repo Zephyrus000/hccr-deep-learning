@@ -288,6 +288,7 @@ def run_gpu_queue(
     *,
     execute: bool = False,
     resume: bool = False,
+    stage_configs: bool = False,
     project_root: Path | None = None,
 ) -> dict:
     """Write a plan by default; execution launches isolated experiment children."""
@@ -300,13 +301,29 @@ def run_gpu_queue(
         raise ValueError("Provide configurations and unique nonnegative GPU indices")
     root = (project_root or Path(__file__).resolve().parents[3]).resolve()
     output = Path(output_dir).resolve()
-    jobs, code_digest = _plan(
-        [Path(path).resolve() for path in config_paths], output, root
-    )
+    config_order = [str(Path(path).resolve()) for path in config_paths]
+    jobs, code_digest = _plan([Path(path) for path in config_order], output, root)
+    for job in jobs:
+        job["stage_index"] = config_order.index(job["aliases"][0]["config"])
     status_path = output / "status.json"
     prior = _json(status_path) if status_path.is_file() else None
     if prior and not resume:
         raise FileExistsError("Queue output already exists; use --resume")
+    if prior and prior.get("stage_configs", False) != stage_configs:
+        raise ValueError("Queue barrier mode changed; use a new output directory")
+    if (
+        prior
+        and prior.get("config_order") is not None
+        and prior["config_order"] != config_order
+    ):
+        raise ValueError("Queue config order changed; use a new output directory")
+    if (
+        prior
+        and prior.get("config_order") is None
+        and [job["fingerprint"] for job in prior["jobs"]]
+        != [job["fingerprint"] for job in jobs]
+    ):
+        raise ValueError("Legacy queue job order changed; use a new output directory")
     if prior and {job["fingerprint"] for job in prior["jobs"]} != {
         job["fingerprint"] for job in jobs
     }:
@@ -315,6 +332,8 @@ def run_gpu_queue(
         "schema_version": 1,
         "status": "planned",
         "code_digest": code_digest,
+        "stage_configs": stage_configs,
+        "config_order": config_order,
         "gpus": gpus,
         "jobs": jobs,
         "hardware": _preflight(jobs, gpus) if execute else [],
@@ -350,24 +369,44 @@ def run_gpu_queue(
         return state
     state["status"] = "running"
     with ThreadPoolExecutor(max_workers=len(gpus)) as pool:
-        remaining, active = iter(pending), {}
+        remaining, active = list(pending), {}
 
-        def dispatch(gpu):
-            job = next(remaining, None)
-            if job is not None:
+        def dispatch():
+            outstanding = remaining + [job for job, _ in active.values()]
+            if not outstanding:
+                return
+            stage = (
+                min(job["stage_index"] for job in outstanding)
+                if stage_configs
+                else None
+            )
+            busy = {gpu for _, gpu in active.values()}
+            for gpu in gpus:
+                if gpu in busy:
+                    continue
+                job = next(
+                    (
+                        job
+                        for job in remaining
+                        if stage is None or job["stage_index"] == stage
+                    ),
+                    None,
+                )
+                if job is None:
+                    continue
+                remaining.remove(job)
                 job.update(status="running", gpu=gpu)
                 save()
                 active[pool.submit(_execute, job, gpu, root)] = (job, gpu)
 
-        for gpu in gpus:
-            dispatch(gpu)
+        dispatch()
         while active:
             finished, _ = wait(active, return_when=FIRST_COMPLETED)
             for future in finished:
                 job, gpu = active.pop(future)
                 job.update(future.result())
                 save()
-                dispatch(gpu)
+            dispatch()
     state["status"] = (
         "completed" if all(job["status"] == "completed" for job in jobs) else "failed"
     )

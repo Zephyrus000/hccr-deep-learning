@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from contextlib import contextmanager
 from typing import Any
 
 import torch
@@ -14,7 +15,27 @@ from tqdm.auto import tqdm
 from hccr.preprocessing.batch import TensorBatchAugmenter
 from hccr.training.diagnostics import ArchitectureDiagnostics
 from hccr.training.distributed import DistributedContext, unwrap_model
+from hccr.training.gate_diagnostics import GateTrainingDiagnostics
 from hccr.training.precision import PrecisionContext
+
+
+@contextmanager
+def _batch_norm_tail_momentum(
+    layers, batch_size: int, reference_batch_size: int | None
+):
+    """Give a partial batch the same running-stat decay per image as full batches."""
+    changed = []
+    if reference_batch_size and batch_size < reference_batch_size:
+        ratio = batch_size / reference_batch_size
+        for module, momentum in layers:
+            if module.training:
+                changed.append((module, momentum))
+                module.momentum = 1 - (1 - momentum) ** ratio
+    try:
+        yield
+    finally:
+        for module, momentum in changed:
+            module.momentum = momentum
 
 
 def train_epoch(
@@ -39,6 +60,15 @@ def train_epoch(
     if freeze_backbone:
         base_model.eval()
         base_model.classifier.train()
+    batch_norm_layers = [
+        (module, module.momentum)
+        for module in base_model.modules()
+        if isinstance(module, nn.modules.batchnorm._BatchNorm)
+        and module.training
+        and module.track_running_stats
+        and module.momentum is not None
+    ]
+    reference_batch_size = getattr(loader, "batch_size", None)
     is_main_process = distributed is None or distributed.is_main_process
     total_loss = 0.0
     total_classification_loss = 0.0
@@ -56,6 +86,7 @@ def train_epoch(
     learning_rate_start = optimizer.param_groups[0]["lr"]
     precision = precision or PrecisionContext("float32", "float32", "cpu", None, None)
     optimizer_steps = 0
+    gate_diagnostics = GateTrainingDiagnostics(base_model)
     with ArchitectureDiagnostics(base_model) as architecture_diagnostics:
         progress = tqdm(
             loader,
@@ -74,7 +105,12 @@ def train_epoch(
                 images, metadata = batch_augmenter(images.float())
             optimizer.zero_grad(set_to_none=True)
             training_logits = getattr(base_model, "training_logits", None)
-            with precision.autocast():
+            with (
+                _batch_norm_tail_momentum(
+                    batch_norm_layers, len(images), reference_batch_size
+                ),
+                precision.autocast(),
+            ):
                 logits = (
                     model(images, targets, margin_multiplier)
                     if training_logits is not None
@@ -99,7 +135,9 @@ def train_epoch(
                 if parameter.grad is not None
             )
             gradient_norms.append(math.sqrt(squared_norm))
+            gate_diagnostics.before_step(batch_index)
             optimizer_stepped = precision.step(optimizer)
+            gate_diagnostics.after_step(optimizer_stepped)
             if batch_scheduler is not None and optimizer_stepped:
                 batch_scheduler.step()
             optimizer_steps += int(optimizer_stepped)
@@ -154,6 +192,9 @@ def train_epoch(
         ),
         "stages": architecture_diagnostics.summary(),
     }
+    gate_summary = gate_diagnostics.summary()
+    if gate_summary is not None:
+        local_metrics["gate_training"] = gate_summary
     gathered_metrics = (
         distributed.all_gather_object(local_metrics)
         if distributed is not None
@@ -192,7 +233,7 @@ def _aggregate_epoch_metrics(rank_metrics: list[dict[str, Any]]) -> dict[str, An
     elapsed_seconds = max(
         float(metrics["train_elapsed_seconds"]) for metrics in rank_metrics
     )
-    return {
+    result = {
         "train_loss": total_loss / total_samples,
         "train_classification_loss": sum(
             float(m.get("classification_loss_sum", m["loss_sum"])) for m in rank_metrics
@@ -231,3 +272,9 @@ def _aggregate_epoch_metrics(rank_metrics: list[dict[str, Any]]) -> dict[str, An
         ),
         "stages": rank_metrics[0]["stages"],
     }
+    if any("gate_training" in metrics for metrics in rank_metrics):
+        result["gate_training"] = {
+            "aggregation": "per_rank_observations_after_gradient_synchronization",
+            "ranks": [metrics.get("gate_training") for metrics in rank_metrics],
+        }
+    return result

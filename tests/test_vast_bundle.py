@@ -13,6 +13,21 @@ from scripts.pack_vast_workspace import MAPPINGS, main, pack_workspace
 
 
 class VastBundleTests(unittest.TestCase):
+    def test_bundle_includes_classifier_study_instructions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.fixture(root)
+            (root / "docs/classifier_study.md").write_text(
+                "Run the paired pilots with --execute", encoding="utf-8"
+            )
+            pack_workspace(root, root / "study.zip")
+            with ZipFile(root / "study.zip") as archive:
+                self.assertEqual(
+                    archive.read("docs/classifier_study.md").decode(),
+                    "Run the paired pilots with --execute",
+                )
+                self.assertNotIn(".env", archive.namelist())
+
     def fixture(self, root):
         for name, payload in {
             "pyproject.toml": "[project]\nname='fixture'\n",

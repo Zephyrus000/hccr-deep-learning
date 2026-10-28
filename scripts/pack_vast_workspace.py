@@ -127,7 +127,11 @@ def pack_workspace(
                 paths.append(path)
     paths.extend(
         root / "docs" / name
-        for name in ("classifier_experiments.md", "vastai_bootstrap.md")
+        for name in (
+            "classifier_experiments.md",
+            "classifier_study.md",
+            "vastai_bootstrap.md",
+        )
         if (root / "docs" / name).exists()
     )
     if include_mappings:

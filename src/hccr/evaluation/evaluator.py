@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Mapping
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import torch
 from torch import nn
@@ -33,7 +34,10 @@ def evaluate(
     class_support: Mapping[int, int] | None = None,
     evaluation_name: str = "validation",
     precision: _PrecisionContext | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
+    # training.__init__ imports workflow, which also imports this evaluator.
+    from hccr.training.gate_diagnostics import GateValidationDiagnostics
+
     model.eval()
     total_samples = 0
     top1_hits = 0
@@ -51,27 +55,31 @@ def evaluate(
         if output_dir is not None
         else None
     )
-    for images, targets, metadata in loader:
-        with precision.autocast() if precision is not None else nullcontext():
-            logits = model(images.to(device))
-        logits = logits.float().cpu()
-        targets = targets.cpu()
-        predictions = logits.argmax(dim=1)
-        support.update(targets.tolist())
-        hits.update(targets[predictions.eq(targets)].tolist())
-        total_samples += targets.numel()
-        top1_hits += predictions.eq(targets).sum().item()
-        top5_hits += (
-            logits.topk(min(5, logits.shape[1]), dim=1)
-            .indices.eq(targets[:, None])
-            .any(dim=1)
-            .sum()
-            .item()
-        )
-        if diagnostics is None:
-            continue
-        rows = _diagnostic_rows(loader, metadata, len(targets))
-        diagnostics.update(logits, targets, rows)
+    with GateValidationDiagnostics(
+        model, enabled=evaluation_name == "validation"
+    ) as gate_diagnostics:
+        for images, targets, metadata in loader:
+            gate_diagnostics.set_targets(targets, metadata)
+            with precision.autocast() if precision is not None else nullcontext():
+                logits = model(images.to(device))
+            logits = logits.float().cpu()
+            targets = targets.cpu()
+            predictions = logits.argmax(dim=1)
+            support.update(targets.tolist())
+            hits.update(targets[predictions.eq(targets)].tolist())
+            total_samples += targets.numel()
+            top1_hits += predictions.eq(targets).sum().item()
+            top5_hits += (
+                logits.topk(min(5, logits.shape[1]), dim=1)
+                .indices.eq(targets[:, None])
+                .any(dim=1)
+                .sum()
+                .item()
+            )
+            if diagnostics is None:
+                continue
+            rows = _diagnostic_rows(loader, metadata, len(targets))
+            diagnostics.update(logits, targets, rows)
     if total_samples == 0:
         raise ValueError("evaluation loader produced no samples")
     metrics = {
@@ -81,6 +89,13 @@ def evaluate(
     }
     if diagnostics is not None:
         metrics.update(diagnostics.write())
+    gate_summary = gate_diagnostics.summary()
+    if gate_summary is not None:
+        metrics["gate_validation"] = gate_summary
+        if output_dir is not None:
+            (output_dir / "gate_diagnostics.json").write_text(
+                json.dumps(gate_summary, indent=2), encoding="utf-8"
+            )
     return metrics
 
 
