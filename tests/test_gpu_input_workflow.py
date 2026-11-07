@@ -230,6 +230,26 @@ class GPUInputWorkflowTests(unittest.TestCase):
                     self.assertEqual(cache["placement"], placement)
                     self.assertEqual(cache["sample_count"], 3)
 
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA not available")
+    def test_training_workflow_preserves_ten_cuda_cache_workers(self):
+        metadata, pipeline, batch, _ = self.execute(
+            self.config(
+                "gpu-ten-workers",
+                device="cuda",
+                precision="float32",
+                augmentation_backend="gpu",
+                training_cache="cuda",
+                num_workers=10,
+                train_blur_probability=0,
+            )
+        )
+        self.assertEqual(pipeline["cache"]["build_workers"], 10)
+        self.assertEqual(pipeline["cache"]["placement"], "cuda")
+        self.assertEqual(pipeline["cache"]["sample_count"], 3)
+        self.assertEqual(pipeline["augmentation"]["backend"], "tensor_affine_v1")
+        self.assertEqual(metadata["training"]["completed_optimizer_steps"], 1)
+        self.assertEqual(sorted(batch[1].tolist()), [0, 1, 2])
+
     def test_frozen_pilot_cpu_cache_keeps_inputs_and_backbone_unchanged(self):
         config = self.config(
             "frozen",

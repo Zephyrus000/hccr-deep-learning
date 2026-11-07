@@ -178,6 +178,22 @@ def add_calibration_predictions(plan, study, catalog):
     return records
 
 
+def add_paper_documents(plan):
+    for name in ("research_proposal_revised.tex", "current_study_results.md"):
+        for folder in (plan.workspace / "docs/classifier", plan.workspace / "docs"):
+            source = folder / name
+            for path in (source, *source.parents):
+                if path == plan.workspace.parent:
+                    break
+                if path.is_symlink() or path.is_junction():
+                    raise ValueError(
+                        f"Paper source must not follow linked paths: {source}"
+                    )
+            if source.exists():
+                plan.optional(source, f"paper/{name}", "paper")
+                break
+
+
 def make_plan(workspace):
     workspace = Path(workspace).resolve()
     plan = BundlePlan(workspace)
@@ -268,8 +284,7 @@ def make_plan(workspace):
     plan.curated_tree(evidence / "results", "paper/tables-and-figures", "paper_evidence")
     for name in ("qa-receipt.json", "deployment-endpoints-snapshot.json"):
         plan.optional(evidence / name, f"provenance/evidence/{name}", "provenance")
-    for name in ("research_proposal_revised.tex", "current_study_results.md"):
-        plan.optional(workspace / "docs" / name, f"paper/{name}", "paper")
+    add_paper_documents(plan)
 
     # Keep the measured native CPU blocks and the repaired ONNX blocks separate.
     for label, source, include_onnx in (("native-pytorch", post, False), ("onnx-verified", verified, True)):

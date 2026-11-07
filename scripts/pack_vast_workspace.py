@@ -125,21 +125,24 @@ def pack_workspace(
             }
             if path.is_file() and path.suffix in extensions and not private:
                 paths.append(path)
-    paths.extend(
-        root / "docs" / name
-        for name in (
-            "classifier_experiments.md",
-            "classifier_study.md",
-            "vastai_bootstrap.md",
-        )
-        if (root / "docs" / name).exists()
-    )
     if include_mappings:
         paths.extend(_verified_mappings(root))
     payloads = {}
     for path in sorted(paths):
         _safe(root, path)
         payloads[path.relative_to(root).as_posix()] = path.read_bytes()
+    for name in (
+        "classifier_experiments.md",
+        "classifier_study.md",
+        "vastai_bootstrap.md",
+    ):
+        path = root / "docs" / "runbooks" / name
+        _safe(root, path)
+        if not path.exists():
+            path = root / "docs" / name
+            _safe(root, path)
+        if path.exists():
+            payloads[f"docs/{name}"] = path.read_bytes()
     if source_version_bundle is not None:
         folder = (
             source_version_bundle

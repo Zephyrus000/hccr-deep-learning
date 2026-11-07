@@ -202,6 +202,8 @@ cython_debug/
 # .vscode/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
+.tmp/
+tmp/
 
 # Ruff stuff:
 .ruff_cache/
@@ -227,6 +229,7 @@ __marimo__/
 .claude/
 
 # AGENTS
+.agents/
 AGENTS.md
 CLAUDE.md
 

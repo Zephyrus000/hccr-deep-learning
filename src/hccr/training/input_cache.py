@@ -175,13 +175,19 @@ class PreparedTrainingCache:
         self.epoch = epoch
 
     def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor, list[str]]]:
+        for images, targets, _ in self.indexed_batches():
+            yield images, targets, [""] * len(targets)
+
+    def indexed_batches(
+        self,
+    ) -> Iterator[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
         generator = torch.Generator(device="cpu").manual_seed(self.seed + self.epoch)
         order = torch.randperm(len(self.targets), generator=generator)
         for start in range(0, len(order), self.batch_size):
             indices = order[start : start + self.batch_size].to(self.images.device)
             images = self.images[indices].to(self.device).float().mul_(1.0 / 255)
             targets = self.targets[indices].to(self.device)
-            yield images, targets, [""] * len(targets)
+            yield images, targets, indices
 
 
 def _fill_cache(
@@ -272,7 +278,7 @@ def build_training_cache(
     if placement == "cuda" and training_device.type != "cuda":
         raise ValueError("CUDA cache placement requires a CUDA training device")
     count, size = len(dataset), transform.image_size
-    workers = min(num_workers, 4)
+    workers = num_workers
     pixels = min(batch_size, count) * size * size
     payload_bytes = count * (size * size + 8)
     order_bytes = count * 8

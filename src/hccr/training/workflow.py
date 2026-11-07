@@ -486,7 +486,7 @@ def _run_training(
             max_gib=config.training_cache_max_gib,
             reserve_gib=config.training_cache_reserve_gib,
             seed=config.seed,
-            num_workers=min(config.num_workers, 4),
+            num_workers=config.num_workers,
             model=model,
             image_size=config.image_size,
         )

@@ -5,7 +5,7 @@
 best checkpoint, and persists artifacts needed for analysis and deployment.
 
 For the official HWDB difficulty-aware classifier study, follow
-[Run the official classifier experiments](../../../docs/classifier_experiments.md).
+[Run the official classifier experiments](../../../docs/runbooks/classifier_experiments.md).
 It covers audited data, paired frozen-backbone pilots, calibration allocation,
 residual fine-tuning, backbone comparisons, and objective controls.
 

@@ -511,6 +511,9 @@ timings. The CSV files are derived tables for analysis.
 
 ## Repository layout
 
+In the research workspace, open `docs/README.md` for the experiment plans,
+results, runbooks, and manuscripts. These documents are kept locally.
+
 ```text
 configs/              Data and executable paper-experiment configuration
 scripts/              Dataset, sweep, and inference benchmark entry points

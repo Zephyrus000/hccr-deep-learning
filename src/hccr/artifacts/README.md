@@ -23,7 +23,7 @@ Head/mid/tail recall and calibration error remain available for class-frequency
 and confidence analysis. Per-component complexity supports classifier ablations.
 They use the existing evaluation pass and do not trigger another benchmark.
 
-The paper in `docs/repo_articles/main.tex` uses Top-1, Top-5, macro recall,
+The paper in `docs/manuscripts/soict-2026/main.tex` uses Top-1, Top-5, macro recall,
 parameters, MACs/FLOPs, and mean/p50/p95 latency. Compact HCCR research also reports
 [accuracy, model size, and CPU time](https://arxiv.org/abs/1702.07975).
 [ShuffleNet V2](https://arxiv.org/abs/1807.11164) motivates measuring speed on the

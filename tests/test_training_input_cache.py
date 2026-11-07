@@ -207,8 +207,8 @@ class TrainingInputCacheTests(unittest.TestCase):
         self.assertEqual(dataset.reads, [])
 
     def test_spawn_staging_workers_prepare_cpu_cache(self):
-        cache, info = self.build(PreparedFitDataset(3), num_workers=1)
-        self.assertEqual(info["build_workers"], 1)
+        cache, info = self.build(PreparedFitDataset(3), num_workers=10)
+        self.assertEqual(info["build_workers"], 10)
         self.assertEqual(cache.targets.tolist(), [0, 1, 2])
         self.assertEqual(tuple(cache.images.shape), (3, 1, 16, 16))
 

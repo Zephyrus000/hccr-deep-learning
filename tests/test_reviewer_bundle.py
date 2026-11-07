@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts/build_reviewer_bundle.py"
 _SPEC = importlib.util.spec_from_file_location("reviewer_bundle_tests", _SCRIPT)
@@ -15,6 +16,46 @@ _SPEC.loader.exec_module(bundle)
 
 
 class ReviewerBundleTests(unittest.TestCase):
+    def test_relocated_papers_prefer_canonical_and_fall_back_to_legacy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical = root / "docs/classifier"
+            canonical.mkdir(parents=True)
+            names = ("research_proposal_revised.tex", "current_study_results.md")
+            for name in names:
+                (root / "docs" / name).write_bytes(b"legacy")
+                (canonical / name).write_bytes(b"canonical")
+            for expected in (b"canonical", b"legacy", None):
+                plan = bundle.BundlePlan(root)
+                bundle.add_paper_documents(plan)
+                self.assertEqual(
+                    list(plan.entries),
+                    [f"paper/{name}" for name in names] if expected else [],
+                )
+                for entry in plan.entries.values():
+                    self.assertEqual(entry.source.read_bytes(), expected)
+                for name in names:
+                    folder = canonical if expected == b"canonical" else root / "docs"
+                    path = folder / name
+                    path.unlink(missing_ok=True)
+
+    def test_relocated_papers_reject_linked_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for flagged in (
+                root / "docs/classifier",
+                root / "docs/classifier/research_proposal_revised.tex",
+                root / "docs/research_proposal_revised.tex",
+            ):
+                with (
+                    self.subTest(flagged=flagged),
+                    patch.object(
+                        Path, "is_symlink", lambda path, target=flagged: path == target
+                    ),
+                    self.assertRaisesRegex(ValueError, "linked paths"),
+                ):
+                    bundle.add_paper_documents(bundle.BundlePlan(root))
+
     @classmethod
     def setUpClass(cls):
         cls.previous_tempdir = tempfile.tempdir

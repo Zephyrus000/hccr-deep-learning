@@ -13,6 +13,55 @@ from scripts.pack_vast_workspace import MAPPINGS, main, pack_workspace
 
 
 class VastBundleTests(unittest.TestCase):
+    def test_relocated_runbooks_keep_archive_names_and_prefer_canonical(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.fixture(root)
+            runbooks = root / "docs/runbooks"
+            runbooks.mkdir()
+            names = (
+                "classifier_experiments.md",
+                "classifier_study.md",
+                "vastai_bootstrap.md",
+            )
+            for name in names:
+                (root / "docs" / name).write_text("legacy", encoding="utf-8")
+                (runbooks / name).write_text("canonical", encoding="utf-8")
+            for expected in (b"canonical", b"legacy", None):
+                pack_workspace(root, root / "bundle.zip")
+                with ZipFile(root / "bundle.zip") as archive:
+                    members = [
+                        name for name in archive.namelist() if name.startswith("docs/")
+                    ]
+                    self.assertEqual(
+                        members, [f"docs/{name}" for name in names] if expected else []
+                    )
+                    for name in members:
+                        self.assertEqual(archive.read(name), expected)
+                for name in names:
+                    folder = runbooks if expected == b"canonical" else root / "docs"
+                    path = folder / name
+                    path.unlink(missing_ok=True)
+
+    def test_relocated_runbooks_reject_linked_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            self.fixture(root)
+            for flagged in (
+                root / "docs/runbooks",
+                root / "docs/runbooks/classifier_study.md",
+                root / "docs/classifier_study.md",
+            ):
+                with (
+                    self.subTest(flagged=flagged),
+                    patch.object(
+                        Path, "is_symlink", lambda path, target=flagged: path == target
+                    ),
+                    self.assertRaisesRegex(ValueError, "linked paths"),
+                ):
+                    pack_workspace(root, root / "bundle.zip")
+                self.assertFalse((root / "bundle.zip").exists())
+
     def test_bundle_includes_classifier_study_instructions(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
