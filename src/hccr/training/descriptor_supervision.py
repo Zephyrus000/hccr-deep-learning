@@ -218,11 +218,15 @@ def train_supervision_epoch(
     separate_tda_view = augmenter is not None and scaler is not None
     tda_weight = config.tda_weight * model.config.scale(epoch)
     batch_norms = [
-        (module, module.momentum)
+        module
         for module in model.cnn.modules()
         if isinstance(module, torch.nn.modules.batchnorm._BatchNorm)
         and module.track_running_stats
-        and module.momentum is not None
+    ]
+    tail_momenta = [
+        (module, module.momentum)
+        for module in batch_norms
+        if module.momentum is not None
     ]
     totals = dict.fromkeys(("loss", "classification_loss", "hog_loss", "tda_loss"), 0.0)
     samples, steps = 0, 0
@@ -243,7 +247,7 @@ def train_supervision_epoch(
             )
         optimizer.zero_grad(set_to_none=True)
         with (
-            _batch_norm_tail_momentum(batch_norms, len(images), config.batch_size),
+            _batch_norm_tail_momentum(tail_momenta, len(images), config.batch_size),
             precision.autocast(),
         ):
             losses = model.training_losses(
@@ -259,8 +263,9 @@ def train_supervision_epoch(
         precision.backward(losses["loss"])
         if separate_tda_view:
             # Sequential backward keeps only one view's activations live at a time.
-            for module, _ in batch_norms:
-                module.eval()
+            # Use clean batch statistics without updating the classification buffers.
+            for module in batch_norms:
+                module.track_running_stats = False
             try:
                 with precision.autocast():
                     clean_loss = model.clean_topology_loss(clean, tda_batch, active)
@@ -268,8 +273,8 @@ def train_supervision_epoch(
                     raise RuntimeError("nonfinite clean-view topology loss")
                 precision.backward(tda_weight * clean_loss)
             finally:
-                for module, _ in batch_norms:
-                    module.train()
+                for module in batch_norms:
+                    module.track_running_stats = True
             losses["tda_loss"] = clean_loss.detach()
             losses["loss"] = losses["loss"].detach() + tda_weight * clean_loss.detach()
         precision.unscale_(optimizer)

@@ -10,7 +10,7 @@ adapters—are not part of the proposed-model API.
 | Symbol | Purpose |
 | --- | --- |
 | `EfficientHCCRNet` | Three-stage depthwise-separable CNN for one-channel character images. |
-| `build_model(name, **kwargs)` | Factory accepting `efficient_hccr`, `resnet18`, `mobilenet_v3_small`, `shufflenet_v2_x1_0`, or `efficientnet_b0`. |
+| `build_model(name, **kwargs)` | Factory for EfficientHCCRNet and the reference models in `MODEL_NAMES`, including `mscs_asa`. |
 | `load_model_from_run(run_dir, ...)` | Reconstruct and strictly load a checkpoint from its stored model metadata. |
 | `build_model_from_metadata(metadata, ...)` | Build an artifact-declared architecture without loading weights. |
 | `optimize_model_for_inference(model)` | Return a frozen eval copy with safe inference transformations. |
@@ -41,6 +41,33 @@ leaving `embedding_dim` unset preserves legacy baseline checkpoints exactly.
 Each baseline exposes `backbone` and `classifier` separately. Resource reports
 therefore measure its classifier and project the last logits layer to the
 full-class setting without treating the whole model as an opaque block.
+
+### MSCS–ASA for offline HCCR
+
+`mscs_asa` implements the architecture in Table 1 and the cross-entropy variant
+in Table 2 of [Xu et al. (2022)](https://doi.org/10.1016/j.compeleceng.2022.107857).
+It uses four convolution blocks, each with split 3×3/1×1 branches and a two-group
+channel shuffle. Squeeze-and-excitation gates the 448 output channels before
+spatial summation. The classifier uses dropout 0.5 and a biased linear layer.
+
+The authors report 97.59% ICDAR 2013 accuracy for this variant. They report
+97.63% for the version trained with center loss. The PyTorch reconstruction has
+6,003,015 trainable parameters at 3,755 classes. Table 2 reports 6,011,591.
+The reconstruction uses bias-free convolutions before BatchNorm, same-size
+padding, and average pooling that excludes padding from its divisor.
+
+`configs/experiment/mscs_asa_vs_efficient_hccr_fp32.yaml` pairs the models from
+scratch at 96×96 on the same official HWDB splits. Both use AdamW, FP32, GPU
+augmentation, host-side image cache, batch 128, seeds 7/17/29, and 100 epochs
+without early stopping. Each model retains its own classification objective.
+Select checkpoints on validation and report Top-1, Top-5, and macro recall on
+HWDB test and ICDAR. This protocol uses the repository's preprocessing and
+training budget. The paper used Keras, SGD and a 25-epoch schedule.
+
+```sh
+NVIDIA_TF32_OVERRIDE=0 python -m hccr.experiments \
+  --config configs/experiment/mscs_asa_vs_efficient_hccr_fp32.yaml
+```
 
 ## Model contract
 
@@ -108,8 +135,8 @@ CosFace and ArcFace normalize embeddings and class weights. Plain `forward`
 returns target-free scaled cosine logits for validation/inference.
 `training_logits(inputs, targets, margin_multiplier)` applies the target margin
 only during training; the multiplier must be between zero and one and supports
-margin warm-up. The same head contract applies to EfficientHCCRNet and all four
-reference baselines; `classification_head="softmax"` keeps a plain classifier.
+margin warm-up. The same head contract applies to EfficientHCCRNet and its
+reference baselines. `classification_head="softmax"` keeps a plain classifier.
 
 ## Inference optimization
 

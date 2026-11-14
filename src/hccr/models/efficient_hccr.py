@@ -24,6 +24,7 @@ MODEL_NAMES = (
     "efficientnet_b0",
     "mobilenetv4_conv_small",
     "repvit_m0_9",
+    "mscs_asa",
 )
 
 

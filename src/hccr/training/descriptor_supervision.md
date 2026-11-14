@@ -11,8 +11,9 @@ CosFace classifier, use the same shuffled full training split and validation-onl
 selection, and preserve the source arithmetic. The 20-epoch pilot uses clean
 images. The 100-epoch FP32 configuration uses CUDA image caching and GPU affine
 augmentation. Its HOG target follows the augmented image. TDA uses a separate
-clean view with matching cached targets, shared CNN weights and frozen BatchNorm
-statistics for that pass. The default auxiliary weights are provisional.
+clean view with matching cached targets and shared CNN weights. BatchNorm uses
+each view's batch statistics. Only classification updates the running statistics.
+The default auxiliary weights are provisional.
 
 HOG uses the existing 96x96, cell-8, 9-bin L2-Hys descriptor. A spatial stage-2 head
 predicts 11x11 blocks of 36 values, with MSE averaged over samples and dimensions.

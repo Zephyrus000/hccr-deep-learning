@@ -20,6 +20,7 @@ from hccr.models.heads import (
     FactorizedClassifier,
     build_classifier,
 )
+from hccr.models.mscs_asa import build_mscs_asa_backbone
 
 
 class TorchvisionClassifierBaseline(nn.Module):
@@ -235,11 +236,41 @@ def build_baseline_model(name: str, **kwargs: object) -> nn.Module:
         return build_shufflenet_v2_x1_0(**kwargs)  # type: ignore[arg-type]
     if name == "efficientnet_b0":
         return build_efficientnet_b0(**kwargs)  # type: ignore[arg-type]
+    if name == "mscs_asa":
+        return build_mscs_asa(**kwargs)  # type: ignore[arg-type]
     if name in {"mobilenetv4_conv_small", "repvit_m0_9"}:
         return build_modern_baseline(name=name, **kwargs)  # type: ignore[arg-type]
     raise ValueError(
         "baseline model must be resnet18, mobilenet_v3_small, "
-        "shufflenet_v2_x1_0, efficientnet_b0, mobilenetv4_conv_small, or repvit_m0_9"
+        "shufflenet_v2_x1_0, efficientnet_b0, mobilenetv4_conv_small, "
+        "repvit_m0_9, or mscs_asa"
+    )
+
+
+def build_mscs_asa(
+    *,
+    num_classes: int,
+    in_channels: int = 1,
+    classification_head: str = "softmax",
+    embedding_dim: int | None = None,
+    logit_scale: float = 32.0,
+    angular_margin: float = 0.1,
+    **head_options,
+) -> nn.Module:
+    """Build the MSCS + ASA cross-entropy variant from Table 2."""
+    _validate_classifier_arguments(num_classes=num_classes, in_channels=in_channels)
+    if in_channels != 1:
+        raise ValueError("MSCS–ASA requires one grayscale input channel")
+    return _wrap_baseline(
+        name="mscs_asa",
+        backbone=build_mscs_asa_backbone(),
+        classifier=nn.Sequential(nn.Dropout(0.5), nn.Linear(448, num_classes)),
+        in_channels=in_channels,
+        classification_head=classification_head,
+        embedding_dim=embedding_dim,
+        logit_scale=logit_scale,
+        angular_margin=angular_margin,
+        **head_options,
     )
 
 

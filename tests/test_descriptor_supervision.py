@@ -314,6 +314,7 @@ def test_cuda_cache_augments_classification_and_aligns_clean_tda_targets():
             DescriptorSupervision.clean_topology_loss,
         )
         seen = []
+        clean_gradients = []
 
         def track_classification(model, images, labels, **kwargs):
             assert images.is_cuda and images.dtype == torch.float32
@@ -323,11 +324,34 @@ def test_cuda_cache_augments_classification_and_aligns_clean_tda_targets():
 
         def track_topology(model, images, targets, active):
             assert images.is_cuda and targets.is_cuda
-            assert not model.cnn.stem[1].training
             expected = scaler.transform(image_tda_targets(images)).cuda()
             torch.testing.assert_close(targets, expected, atol=1e-5, rtol=1e-5)
             assert not torch.equal(images, seen[-1])
-            return topology(model, images, targets, active)
+            running_stats = [
+                (buffer, buffer.clone())
+                for name, buffer in model.cnn.named_buffers()
+                if name.endswith(("running_mean", "running_var", "num_batches_tracked"))
+            ]
+            batch_norm = model.cnn.stem[1]
+
+            def check_normalization(module, inputs, output):
+                expected = torch.nn.functional.batch_norm(
+                    inputs[0],
+                    None,
+                    None,
+                    module.weight,
+                    module.bias,
+                    training=True,
+                    eps=module.eps,
+                )
+                torch.testing.assert_close(output, expected)
+                output.register_hook(lambda grad: clean_gradients.append(grad.norm()))
+
+            with batch_norm.register_forward_hook(check_normalization):
+                loss = topology(model, images, targets, active)
+            for buffer, previous in running_stats:
+                torch.testing.assert_close(buffer, previous, atol=0, rtol=0)
+            return loss
 
         with (
             patch.object(
@@ -343,6 +367,8 @@ def test_cuda_cache_augments_classification_and_aligns_clean_tda_targets():
         )
         state = torch.load(output / "latest.pt", map_location="cpu", weights_only=True)
         assert state["model"]["cnn.stem.1.num_batches_tracked"].item() == len(seen) == 3
+        assert len(clean_gradients) == len(seen)
+        assert all(norm > 0 for norm in clean_gradients)
         assert state["history"][0]["train"]["tda_loss"] > 0
 
 
