@@ -28,6 +28,7 @@ from hccr.data.manifest import read_manifest, validate_training_manifest
 from hccr.evaluation.evaluator import evaluate
 from hccr.evaluation.reports import save_learning_curves
 from hccr.models import MODEL_NAMES, build_model
+from hccr.models.efficient_hccr import POOLING_NAMES
 from hccr.preprocessing import EvalPreprocessor, TrainPreprocessor
 from hccr.preprocessing.batch import TensorBatchAugmenter
 from hccr.preprocessing.gallery import save_gallery
@@ -136,6 +137,7 @@ class TrainingConfig:
     benchmark_repetitions: int = 5
     bn_recalibration_batches: int = 0
     validation_drop_threshold: float = 0.05
+    pooling: str = "gap"
 
 
 @dataclass(frozen=True)
@@ -1164,6 +1166,10 @@ def _validate_training_config(config: TrainingConfig) -> None:
         raise ValueError("stage_depths must contain three positive values")
     if config.stem_stride not in {1, 2}:
         raise ValueError("stem_stride must be 1 or 2")
+    if config.pooling not in POOLING_NAMES:
+        raise ValueError(f"unsupported pooling: {config.pooling}")
+    if config.pooling != "gap" and config.model != "efficient_hccr":
+        raise ValueError("weighted pooling requires efficient_hccr")
     if config.width < 1:
         raise ValueError("width must be positive")
     if (
@@ -1293,6 +1299,8 @@ def _build_training_model(config: TrainingConfig, num_classes: int) -> torch.nn.
         dropout=config.dropout,
         stage_depths=config.stage_depths,
         stem_stride=config.stem_stride,
+        pooling=config.pooling,
+        image_size=config.image_size,
         reparameterize_depthwise=config.reparameterize_depthwise,
         classification_head=config.classification_head,
         logit_scale=config.logit_scale,
@@ -1339,6 +1347,10 @@ def _model_metadata(
             "angular_margin": config.angular_margin,
         }
     )
+    if model.pooling != "gap":
+        metadata["pooling"] = model.pooling
+    if model.pooling == "gwap":
+        metadata["image_size"] = config.image_size
     return metadata
 
 

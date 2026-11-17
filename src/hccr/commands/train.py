@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from hccr.models import MODEL_NAMES
+from hccr.models.efficient_hccr import POOLING_NAMES
 from hccr.training import TrainingConfig, run_training
 
 NAME = "train"
@@ -59,6 +60,12 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--image-size", type=int, default=64)
+    parser.add_argument(
+        "--pooling",
+        choices=POOLING_NAMES,
+        default="gap",
+        help="Global pooling for EfficientHCCRNet.",
+    )
     parser.add_argument("--width", type=int, default=64)
     parser.add_argument(
         "--backbone-output-channels",
@@ -241,6 +248,7 @@ def config_from_arguments(arguments: argparse.Namespace) -> TrainingConfig:
         lr_warmup_ratio=arguments.lr_warmup_ratio,
         weight_decay=arguments.weight_decay,
         image_size=arguments.image_size,
+        pooling=arguments.pooling,
         width=arguments.width,
         backbone_output_channels=arguments.backbone_output_channels,
         embedding_dim=arguments.embedding_dim,

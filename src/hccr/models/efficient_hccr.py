@@ -26,6 +26,7 @@ MODEL_NAMES = (
     "repvit_m0_9",
     "mscs_asa",
 )
+POOLING_NAMES = ("gap", "gwoap", "gwap")
 
 
 class ConvNormAct(nn.Sequential):
@@ -156,6 +157,27 @@ class DepthwiseSeparableBlock(nn.Module):
         )
 
 
+class _WeightedAveragePool2d(nn.Module):
+    """Learn channel or spatial adjustments to global average pooling."""
+
+    def __init__(self, channels: int, spatial_size: int | None) -> None:
+        super().__init__()
+        self.spatial_size = spatial_size
+        grid = spatial_size or 1
+        self.delta = nn.Parameter(torch.zeros(channels, grid, grid))
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        weights = 1 + self.delta
+        if self.spatial_size is None:
+            return F.adaptive_avg_pool2d(features, 1) * weights
+        if features.shape[-2:] != self.delta.shape[-2:]:
+            raise ValueError(
+                f"GWAP expects spatial grid {tuple(self.delta.shape[-2:])}, "
+                f"got {tuple(features.shape[-2:])}"
+            )
+        return F.adaptive_avg_pool2d(features * weights, 1)
+
+
 class EfficientHCCRNet(nn.Module):
     """Grayscale CNN limited to architectures that survived ablation."""
 
@@ -180,6 +202,8 @@ class EfficientHCCRNet(nn.Module):
         gate_use_gap: bool = True,
         gate_detach_gap: bool = True,
         normalization_eps: float = 1e-6,
+        pooling: str = "gap",
+        image_size: int = 64,
     ) -> None:
         super().__init__()
         if in_channels != 1:
@@ -190,6 +214,10 @@ class EfficientHCCRNet(nn.Module):
             raise ValueError("stage_depths must contain three positive values")
         if stem_stride not in {1, 2}:
             raise ValueError("stem_stride must be 1 or 2")
+        if pooling not in POOLING_NAMES:
+            raise ValueError(f"unsupported pooling: {pooling}")
+        if pooling == "gwap" and image_size < 1:
+            raise ValueError("GWAP image_size must be positive")
         if backbone_output_channels is not None and backbone_output_channels < 1:
             raise ValueError("backbone_output_channels must be positive when set")
         if embedding_dim is not None and embedding_dim < 1:
@@ -249,7 +277,17 @@ class EfficientHCCRNet(nn.Module):
             )
         )
         self.embedding_dim = embedding_dim or feature_channels
-        self.pool, self.embedding_dropout = nn.AdaptiveAvgPool2d(1), nn.Dropout(dropout)
+        self.pooling = pooling
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        if pooling != "gap":
+            # The stem and two stage transitions each use same-padding strides.
+            stride = stem_stride * 4
+            spatial_size = (image_size + stride - 1) // stride
+            self.pool = _WeightedAveragePool2d(
+                self.backbone_output_channels,
+                spatial_size if pooling == "gwap" else None,
+            )
+        self.embedding_dropout = nn.Dropout(dropout)
         self.embedding_projection = (
             nn.Identity()
             if self.embedding_dim == self.backbone_output_channels

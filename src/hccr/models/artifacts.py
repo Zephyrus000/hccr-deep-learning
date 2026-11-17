@@ -18,6 +18,8 @@ _EFFICIENT_HCCR_KEYS = {
     "embedding_dim",
     "stage_depths",
     "stem_stride",
+    "pooling",
+    "image_size",
     "reparameterize_depthwise",
     "dropout",
     "classification_head",

@@ -84,6 +84,7 @@ def prepare_classifier_stage(
             "embedding_dim",
             "stage_depths",
             "stem_stride",
+            "pooling",
             "reparameterize_depthwise",
             "dropout",
             "classification_head",
@@ -102,6 +103,7 @@ def prepare_classifier_stage(
             "backbone_output_channels",
             "stage_depths",
             "stem_stride",
+            "pooling",
             "reparameterize_depthwise",
             "dropout",
         ):
