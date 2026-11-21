@@ -364,6 +364,25 @@ def initialize_training_model(
     if stored_labels != class_labels:
         raise ValueError("initialization checkpoint uses a different class mapping")
     source = load_model_from_run(run_dir)
+    source_head, target_head = source.classifier, model.classifier
+    source_structure = getattr(
+        source,
+        "classifier_structure",
+        metadata["model"].get("classifier_structure", "dense"),
+    )
+    target_structure = getattr(model, "classifier_structure", "dense")
+    projection = getattr(model, "embedding_projection", None)
+    bottleneck_control = (
+        source_structure == "low_rank"
+        and target_structure == "dense"
+        and getattr(source, "classification_head", None) == "cosface"
+        and getattr(model, "classification_head", None) == "cosface"
+        and isinstance(getattr(source, "embedding_projection", None), torch.nn.Identity)
+        and isinstance(projection, torch.nn.Linear)
+        and projection.bias is None
+        and projection.weight.shape == source_head.basis.shape
+        and target_head.weight.shape == source_head.coefficients.shape
+    )
     source_state = source.state_dict()
     target_state = model.state_dict()
     source_backbone = {
@@ -372,19 +391,20 @@ def initialize_training_model(
     target_backbone = {
         k: v for k, v in target_state.items() if not k.startswith("classifier.")
     }
+    if bottleneck_control:
+        del target_backbone["embedding_projection.weight"]
     if source_backbone.keys() != target_backbone.keys() or any(
         source_backbone[k].shape != v.shape for k, v in target_backbone.items()
     ):
         raise ValueError("initialization must preserve the exact backbone architecture")
     model.load_state_dict(source_backbone, strict=False)
-    source_head, target_head = source.classifier, model.classifier
-    source_structure = getattr(
-        source,
-        "classifier_structure",
-        metadata["model"].get("classifier_structure", "dense"),
-    )
-    target_structure = getattr(model, "classifier_structure", "dense")
-    if source_structure == target_structure:
+    if bottleneck_control:
+        assert isinstance(projection, torch.nn.Linear)
+        with torch.no_grad():
+            projection.weight.copy_(source_head.basis)
+            target_head.weight.copy_(source_head.coefficients)
+        mode = "low_rank_pilot_to_embedding_bottleneck"
+    elif source_structure == target_structure:
         target_head.load_state_dict(source_head.state_dict())
         mode = "matching_checkpoint"
     elif source_structure == "dense" and hasattr(target_head, "initialize_from_dense"):
