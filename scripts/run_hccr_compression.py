@@ -10,6 +10,7 @@ import platform
 import statistics
 import sys
 import time
+from dataclasses import fields
 from pathlib import Path
 from random import Random
 
@@ -136,8 +137,34 @@ def pilot(args):
         raise ValueError("Use the ICIIT FP32 runtime with one visible GPU")
     teacher = args.teacher.resolve()
     manifest = args.manifest.resolve()
-    recipe = module.load_teacher_recipe(teacher, manifest)
-    identity = module.teacher_identity(teacher, recipe.seed, manifest)
+    meta = module.complete_budget(teacher, 100, "best_validation")
+    config = read(teacher / "config.json")
+    if config.pop("pooling", "gap") != "gap":
+        raise ValueError("The cached head pilot requires a GAP teacher")
+    config.update(
+        manifest_path=manifest,
+        output_dir=teacher,
+        stage_depths=tuple(config["stage_depths"]),
+    )
+    supported = {field.name for field in fields(module.workflow.TrainingConfig)}
+    if config.keys() - supported:
+        raise ValueError(
+            f"Teacher fields unsupported by the pilot: {config.keys() - supported}"
+        )
+    recipe = module.workflow.TrainingConfig(**config)
+    module.workflow._validate_training_config(recipe)
+    if (
+        recipe.epochs != 100
+        or recipe.seed != meta["training"]["seed"]
+        or recipe.initialize_from_run is not None
+        or recipe.freeze_backbone
+        or meta["manifest_digest"] != MANIFEST_SHA
+        or meta["model"]["classifier_structure"] != "dense"
+        or meta["model"]["classification_head"] != "cosface"
+        or meta["model"]["embedding_dim"] != 320
+        or meta["labels_digest"] != module.file_digest(teacher / "labels.json")
+    ):
+        raise ValueError("Expected the matched FP32 dense CosFace teacher")
     rank = VARIANTS[args.variant][2]
     spec = module.prepare_classifier_stage(
         "pilots", teacher, manifest, seed=recipe.seed, rank=rank, device="cuda"
@@ -171,7 +198,7 @@ def pilot(args):
         "backbone_digest": module.state_digest(
             model.state_dict(), exclude_classifier=True
         ),
-        "teacher_checkpoint_digest": identity["artifacts"]["checkpoint.pt"],
+        "teacher_checkpoint_digest": module.file_digest(teacher / "checkpoint.pt"),
         "manifest_digest": MANIFEST_SHA,
         "splits": {key: value.report for key, value in features.items()},
         "arithmetic": arithmetic,
